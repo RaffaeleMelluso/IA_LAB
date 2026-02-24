@@ -1,0 +1,13 @@
+haTipo(pichu,elettro).
+haTipo(emboar,fuoco).
+haTipo(piplup,acqua).
+haTipo(volcanion,acqua).
+haTipo(volcanion,fuoco).
+esegue(fuoco,lanciafiamme).
+esegue(elettro,fulmine).
+esegue(acqua,idropulsar).
+esegue(acqua,surf).
+esegueMossa(pichu,codacciaio).
+esegueMossa(Pokemon,Mossa):-
+    haTipo(Pokemon,T),
+    esegue(T,Mossa).
