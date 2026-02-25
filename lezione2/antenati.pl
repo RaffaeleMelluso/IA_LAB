@@ -81,3 +81,15 @@ fratelli_unilaterali(X,Y):-
     GenX \== GenY,
     X \== Y.
 
+zio(X,Y):-
+    genitore(Z,Y),
+    fratello_germano(Z,X),
+    X \== Y.
+
+cugino(X,Y):-
+    genitore(A,X),
+    genitore(B,Y),
+
+    A \== B,
+    fratello_germano(A,B),
+    X \== Y.

@@ -11,3 +11,4 @@ esegueMossa(pichu,codacciaio).
 esegueMossa(Pokemon,Mossa):-
     haTipo(Pokemon,T),
     esegue(T,Mossa).
+
