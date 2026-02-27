@@ -93,3 +93,4 @@ cugino(X,Y):-
     A \== B,
     fratello_germano(A,B),
     X \== Y.
+
