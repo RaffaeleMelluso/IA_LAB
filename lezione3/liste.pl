@@ -36,3 +36,26 @@ contaPositivi([Head|Tail],Tot):-
     contaPositivi(Tail,Tot).
 %se quando lo eseguo non assegno una variabile, ma do una costante controlla se poi
 %quella costante è vera o falsa
+
+/*sottolista(+L,-S). verifica se esiste un elemento di l che coincide con s
+    esempio [1,[2,3],ciccio,[fa,do],-67]
+    successo con [fa,do]
+    fallimento con -67
+    fallimento con [1,[2,3]]
+    quindi s deve essere una lista
+*/
+
+%caso se head è una lista
+sottolista([Head|_], Head):-
+    is_list(Head).
+%caso se head non è una lista    
+sottolista([_|Tail],R):-
+    sottolista(Tail,R).
+
+%findall(L,sottolista([1,[2,3],ciccio,[fa,do],-67],L),Ris). 
+%in Ris vengono messe tutte le liste L che soddisfano la sottolista, in questo caso [2,3] e [fa,do]
+%la sintassi di findall è findall(Variabile,formula,ListaRisultato)
+%e restituisce in ListaRisultato tutte le istanze di Variabile che 
+%soddisfano formula
+
+

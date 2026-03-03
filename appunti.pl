@@ -67,4 +67,33 @@
     attenzione le liste non sono commutative.
     quando scriviamo un programma scriviamo tutto in positivo e lui ci scrive solo la prima soluzione che trova
     atomic(X) controlla che X non sia una Lista
+
+    il carattere "_" serve come segnaposto per le variabili dummy che non uso, come su python
+
+    in prolog il carattere ! serve per il cut, che è un operatore che viene usato per limitare il backtracking in Prolog.
+    quando viene incontrato un cut, Prolog non tornerà indietro per cercare altre soluzioni per le regole 
+    che sono state eseguite prima del cut. Così possiamo evitare di esplorare altri rami che non ci interessano.
+    cut si occupa di tagliare il backtracking quando incontriamo un elemento che soddisfa una certa condizione,
+    saltando tutte le altre alternative che potrebbero essere esplorate per quella regola.
+
+
+
+    come funziona il run-time di prolog:
+    stack di esecuzione, record di attivazione delle clausole
+    stack di backtracking, record di backtracking per i choice point
+    (nella realtà è solo uno stack)
+    nel record di backtracking le clausole sono messe al contrario perchè tiriamo fuori prima quelle scritte prima
+    l'aggiunta allo stack di backtracking è dinamica per i punti di scelta e non li mette tutti insieme subito
+    es:
+     (cl11) a:- p,b.
+     (cl12) a:- -r.
+     (cl13) p:- q.
+     (cl14) p:- r.
+     (cl15) r.
+    quando costruiamo lo stack dei choice point mettiamo prima cl12 e cl11 con cl11 sopra, poi mettiamo cl13 e cl14 con cl13 sopra.
+    quindi lo stack diventa dall'alto verso il basso:
+    (cl13)
+    (cl14)
+    cl(11)
+    cl(12)
 */
