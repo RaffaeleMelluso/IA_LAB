@@ -1,4 +1,5 @@
 /*
+    make. per ricompilare al volo
     ";" serve quando vogliamo scorrere i vari valori che può assumere una variabile nel terminale
     ":-" è l'operatore di definizione, che viene usato per definire regole e fatti in Prolog.
     "\+" è l'operatore di negazione, che viene usato per negare una condizione in Prolog.
@@ -96,4 +97,6 @@
     (cl14)
     cl(11)
     cl(12)
+
+    il carattere "\+" serve per fare la negazione
 */
