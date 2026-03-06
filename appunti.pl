@@ -99,4 +99,28 @@
     cl(12)
 
     il carattere "\+" serve per fare la negazione
+
+
+    Ricerca nello spazio degli stati:
+    il problema di ricerca è definito da stato iniziale, inseme delle azioni, specifica degli obiettivi e costo per ogni azione.
+    Insieme azioni raggiungibili da uno stato= stato iniziale + insieme delle azioni
+    il cammino è una sequenza di stati collegati da una sequenza di azioni
+    il costo del cammino è la somma dei costi delle azioni che compongono il cammino
+    si usa una funzione euristica h(n) che stima il costo del cammino più economico da n a un obiettivo
+    associamo ad ogni azione un costo e g(n) è il costo del cammino più economico da stato iniziale a n
+    f(n)=g(n)+h(n) è il costo stimato del cammino più economico da stato iniziale a un obiettivo passando per n
+    se h(n) è ammissibile, cioè non sovrastima il costo reale del cammino più economico da n a un obiettivo è ottimale,
+    cioè trova sempre il cammino più economico da stato iniziale a un obiettivo.
+
+    però spesso si diventa matti a cercare euristiche ammissibili, si cercano delle euristiche ragionevoli,
+    che non sovrastimano troppo il costo reale del cammino più economico da n a un obiettivo, ma che non sono necessariamente ammissibili.
+    
+    esempio di un labirinto con prolog:
+    stato iniziale: posizione di partenza
+    insieme delle azioni: muoversi in una delle quattro direzioni (nord, sud, est, ovest)
+    specifica degli obiettivi: raggiungere la posizione di arrivo
+    costo per ogni azione: 1
+    per sapere in che posizione siamo usiamo pos(Riga, Colonna)
+    quando c'è un muro usiamo occupata(pos(Riga, Colonna))
+    
 */
