@@ -11,7 +11,7 @@ applicabile(sud, pos(R,C)):-
     \+occupata(pos(RNuova, C)).
 applicabile(ovest, pos(R,C)):-
     C > 1,
-    CNuova is C+1,
+    CNuova is C-1,
     \+occupata(pos(R,CNuova)).
 applicabile(est, pos(R,C)):-
     num_col(M),
