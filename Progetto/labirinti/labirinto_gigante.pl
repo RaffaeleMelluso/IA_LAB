@@ -2,6 +2,7 @@
 % Generato proceduralmente con ostacoli sparsi e percorsi garantiti.
 
 :- dynamic(occupata/1).
+:- multifile finale/1.
 
 num_righe(200).
 num_col(200).

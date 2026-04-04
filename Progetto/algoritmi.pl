@@ -1,4 +1,5 @@
 :-ensure_loaded('inversionelista.pl').
+:- multifile finale/1.
 
 /*
 struttura del nodo per implementare A*
@@ -13,14 +14,14 @@ dove F=G+H e ListaAzioni è la lista delle mosse fatte per arrivare a Stato
 inserisci_ordinato(NodoNuovo, [], [NodoNuovo]):-!.
 
 %caso di inserimento in testa alla lista
-inserisci_ordinato(nodo(F1,S1,G1,H1,Az1), [nodo(F2,S2,G2,H2,Az2)|Tail], [nodo(F1, S1, G1, H1, Az1), nodo(F2, S2, G2, H2, Az2)|Tail] ) :-
+inserisci_ordinato(nodo(F1,S1,G1,H1,Az1), [nodo(F2,S2,G2,H2,Az2)|Tail], [nodo(F1, S1, G1, H1, Az1), nodo(F2, S2, G2, H2, Az2)|Tail] ):-
     %il nodo da inserire (1) ha F minore o uguale a quello del nodo in testa alla lista (2)
     %se F1 è minore o uguale a F2, inserisco il nodo nuovo in testa alla lista e 
     %faccio il cut per evitare di cercare altre soluzioni
     F1 =< F2, !.
 
 %caso di scorrimento della lista
-inserisci_ordinato(nodo(F1,S1,G1,H1,Az1), [nodo(F2,S2,G2,H2,Az2)|Tail], [nodo(F2, S2, G2, H2, Az2)|TailNuova]) :-
+inserisci_ordinato(nodo(F1,S1,G1,H1,Az1), [nodo(F2,S2,G2,H2,Az2)|Tail], [nodo(F2, S2, G2, H2, Az2)|TailNuova]):-
     %altrimenti, se F1 è maggiore di F2, continuo a cercare la posizione corretta 
     %per inserire il nodo nuovo
     F1 > F2,
@@ -30,14 +31,17 @@ inserisci_ordinato(nodo(F1,S1,G1,H1,Az1), [nodo(F2,S2,G2,H2,Az2)|Tail], [nodo(F2
 
 %PARTE RELATIVA AL CALSOCLO DELLA DISTANZA MANHATTAN
 
-manhattan(pos(R,C), Distanza) :-
+manhattan(pos(R,C), Distanza):-
     finale(pos(R_GOAL, C_GOAL)),
     Distanza is abs(R - R_GOAL) + abs(C - C_GOAL).
+
+manhattan(otto(Tessere), Distanza):-
+    manhattan_otto(Tessere, 0, 0, Distanza).
 
 
 %A* WRAPPER
 
-astar(Inizio, Soluzione) :-
+astar(Inizio, Soluzione):-
     %calcolo la distanza manhattan del nodo iniziale
     manhattan(Inizio, H),
 
@@ -52,11 +56,11 @@ astar(Inizio, Soluzione) :-
 
 %caso base: se il nodo in testa alla lista è un nodo finale, restituisco la soluzione
 %in ordine i _ sono: F, Stato, G, H, Azioni|Tail, Essplorati, Soluzione
-astar_ricerca([nodo(_, Stato, _, _, Azioni)|_], _, Azioni) :-
+astar_ricerca([nodo(_, Stato, _, _, Azioni)|_], _, Azioni):-
     finale(Stato), !.
 
 %caso ricorsivo di esplorazione dei nodi
-astar_ricerca([NodoAttuale|Tail], Esplorati, Soluzione) :-
+astar_ricerca([NodoAttuale|Tail], Esplorati, Soluzione):-
     %in ordine i parametri sono: F, Stato, G, H, Azioni
     NodoAttuale = nodo(_, Stato, _, _, _),
     
@@ -75,7 +79,7 @@ astar_ricerca([NodoAttuale|Tail], Esplorati, Soluzione) :-
 %funzione che genera un nodo figlio a partire da un nodo padre, controllando che lo stato 
 %figlio non sia già stato esplorato
 %in ordine i parametri di nodo sono: F, Stato, G, H, Azioni
-genera_successore(nodo(_, Stato, G, _, Azioni), Esplorati, NodoFiglio) :-
+genera_successore(nodo(_, Stato, G, _, Azioni), Esplorati, NodoFiglio):-
     %n.b. applicabile e trasforma si trovano nel labirinto_azioni.pl
     applicabile(Azione, Stato),
     trasforma(Azione, Stato, StatoFiglio),
@@ -114,20 +118,21 @@ inserisci_lista_ordinata([H|T], L, Risultato) :-
 %IDA*, è come A* ma con una profondità limite che viene aumentata ad ogni iterazione, 
 %fino a quando non si trova la soluzione, inoltre non mantiene la lista dei nodi aperti
 %perchè usa la ricerca in profondità.
-idastar(Inizio, Soluzione) :-
+idastar(Inizio, Soluzione):-
     manhattan(Inizio, H),
-    ida_star_ricerca(Inizio, H, H, SoluzioneInversa),
-    inverti(SoluzioneInversa, Soluzione).
+    % In IDA* la soluzione e' gia' costruita nell'ordine iniziale->goal,
+    % quindi NON va invertita come facciamo nel wrapper di A*.
+    ida_star_ricerca(Inizio, H, H, Soluzione).
 
 %creo un wrapper per discriminare i casi di soluzione trovata e di limite superato, 
 %in modo da non dover gestire questi casi all'interno della funzione di ricerca in profondità
 
 %Caso base: soluzione trovata
-ida_star_ricerca(Inizio, Soglia, _, Soluzione) :-
+ida_star_ricerca(Inizio, Soglia, _, Soluzione):-
     ida_dfs(Inizio, 0, Soglia, [Inizio], trovato(Soluzione)), !.
 
 %Caso ricorsivo: nessuna soluzione, aggiorno la soglia
-ida_star_ricerca(Inizio, Soglia, _, Soluzione) :-
+ida_star_ricerca(Inizio, Soglia, _, Soluzione):-
     ida_dfs(Inizio, 0, Soglia, [Inizio], limite(NuovaSoglia)),
     NuovaSoglia \= infinito,
     NuovaSoglia > Soglia,
@@ -137,7 +142,7 @@ ida_star_ricerca(Inizio, Soglia, _, Soluzione) :-
 
 %parte relativa alla ricerca in profondità con limite per IDA*
 %caso base: nodo finale trovato nella soglia
-ida_dfs(Stato, G, Soglia, _, trovato([])) :-
+ida_dfs(Stato, G, Soglia, _, trovato([])):-
     %controllo se lo stato è finale
     finale(Stato),
     %calcolo la distanza di manhattan
@@ -178,24 +183,24 @@ successore_valido_ida(Stato, Visitati, Azione, StatoFiglio) :-
 esplora_successori_ida([], _, _, _, limite(infinito)):- !.
 
 %esplora un figlio e combina il suo esito con quello dei fratelli restanti
-esplora_successori_ida([azione_stato(Azione, StatoFiglio)|Resto], G, Soglia, Visitati, Esito) :-
+esplora_successori_ida([azione_stato(Azione, StatoFiglio)|Resto], G, Soglia, Visitati, Esito):-
     GFiglio is G + 1,
     ida_dfs(StatoFiglio, GFiglio, Soglia, [StatoFiglio|Visitati], EsitoFiglio),
     combina_esito_successori(Azione, EsitoFiglio, Resto, G, Soglia, Visitati, Esito).
 
 %se il figlio trova soluzione, aggiungo l'azione in testa e termino
-combina_esito_successori(Azione, trovato(SoluzioneFiglio), _, _, _, _, trovato([Azione|SoluzioneFiglio])) :- !.
+combina_esito_successori(Azione, trovato(SoluzioneFiglio), _, _, _, _, trovato([Azione|SoluzioneFiglio])):- !.
 
 %se il figlio supera la soglia, esploro i fratelli e combino gli esiti
-combina_esito_successori(_, limite(SogliaFiglio), Resto, G, Soglia, Visitati, Esito) :-
+combina_esito_successori(_, limite(SogliaFiglio), Resto, G, Soglia, Visitati, Esito):-
     esplora_successori_ida(Resto, G, Soglia, Visitati, EsitoResto),
     combina_limite_o_soluzione(SogliaFiglio, EsitoResto, Esito).
 
 %se tra i fratelli c'è una soluzione, propago subito la soluzione
-combina_limite_o_soluzione(_, trovato(Soluzione), trovato(Soluzione)) :- !.
+combina_limite_o_soluzione(_, trovato(Soluzione), trovato(Soluzione)):- !.
 
 %se non c'è soluzione tra i fratelli, tengo il minimo sforamento
-combina_limite_o_soluzione(SogliaFiglio, limite(SogliaResto), Esito) :-
+combina_limite_o_soluzione(SogliaFiglio, limite(SogliaResto), Esito):-
     min_esito_ida(SogliaFiglio, SogliaResto, Esito).
 
 %parte relaticva al trovare il minimo tra due figli che hanno superato la soglia
@@ -204,3 +209,47 @@ min_esito_ida(S, infinito, limite(S)) :- !.
 min_esito_ida(S1, S2, limite(Min)) :- Min is min(S1, S2).
 
 
+
+
+%IMPLEMENTAZIONE GIOCO DELL'8
+
+%introduzione predicati terminazione del gioco
+finale(otto([1,2,3,4,5,6,7,8,0])).
+
+
+%DISTANZA MANHATTAN 8
+%manhattan_otto/4 e' il calcolo ricorsivo per il gioco dell'8
+
+%parametri di manhattan_otto:
+/*
+    Tessere rimaste da scorrere,
+    indice della tessera che stiamo considerando,
+    distanza accumulata finora,
+    distanza totale alla fine del calcolo
+*/
+%caso base per il calcolo della distanza manhattan per il gioco dell'8
+%abbiamo finito di scorrere tutte le tessere
+manhattan_otto([], _, Accumulatore, Accumulatore).
+
+%caso in cui incontriamo il vuoto
+manhattan_otto([0|Tail], IndiceCorrente, Accumulatore, DistanzaFinale) :-
+    IndiceSuccessivo is IndiceCorrente + 1,
+    manhattan_otto(Tail, IndiceSuccessivo, Accumulatore, DistanzaFinale).
+
+%caso ricorsivo, non troviamo il vuoto ma una tessera
+manhattan_otto([Valore|Tail], IndiceCorrente, Accumulatore, DistanzaFinale):-
+    Valore \= 0,
+    IndiceSuccessivo is IndiceCorrente + 1,
+    %calcolo la riga e la colonna finale della tessera Valore
+    % // è la divisione intera
+    R_GOAL is (Valore - 1) // 3,
+    C_GOAL is (Valore - 1) mod 3,
+    %calcolo la posizione attuale della tessera Valore
+    R_ATTUALE is IndiceCorrente // 3,
+    C_ATTUALE is IndiceCorrente mod 3,
+    %calcolo la distanza manhattan tra la posizione attuale e quella finale
+    DistanzaTessera is abs(R_ATTUALE - R_GOAL) + abs(C_ATTUALE - C_GOAL),
+    %aggiorno l'accumulatore con la distanza della tessera corrente
+    NuovoAccumulatore is Accumulatore + DistanzaTessera,
+    %chiamata ricorsiva
+    manhattan_otto(Tail, IndiceSuccessivo, NuovoAccumulatore, DistanzaFinale).

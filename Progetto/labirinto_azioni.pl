@@ -1,3 +1,6 @@
+:- multifile applicabile/2.
+:- multifile trasforma/3.
+
 %applicabile (Az,S)
 applicabile(nord,pos(R,C)):-
     R > 1,
