@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import argparse
 import sys
+import subprocess
 import time
+from pathlib import Path
 
 from tkinter import*
 import tkinter as tk
@@ -275,7 +277,8 @@ class ClipsAgent:
     def update_time_counter(self, obs):
         for f in self.env.facts():
            if f.template.name == "counter":
-               self.env.eval(f"(modify {f.index} (step {obs["steps"]}))")
+               steps = obs["steps"]
+               self.env.eval(f"(modify {f.index} (step {steps}))")
 
     def agenda_snapshot(self):
         return [str(a) for a in self.env.activations()]
@@ -294,9 +297,11 @@ class WumpusWorldGUI:
     def __init__(self, world: WumpusWorld, agent: ClipsAgent):
         self.world = world
         self.agent = agent
+        self.iterate = False
 
         self.root = tk.Tk()
         self.root.title("Wumpus World with Walls")
+        self.root.protocol("WM_DELETE_WINDOW", self.close)
 
         self.cell = 60
         self.pad = 10
@@ -338,8 +343,11 @@ class WumpusWorldGUI:
         self.btn_reset.pack(fill="x")
 
         self.obs = self.world.reset()
+        self.agent.reset()
+        self.agent.assert_percept(self.obs)
         self.draw()
         self.refresh()
+        self.root.after(100, self.run_clips)
 
     def cell_box(self, x, y):
         x0 = self.pad + x * self.cell
@@ -407,6 +415,13 @@ class WumpusWorldGUI:
     def stop_clips(self):
         self.iterate = False
 
+    def close(self):
+        self.iterate = False
+        try:
+            self.root.quit()
+        finally:
+            self.root.destroy()
+
     def step(self):
         self.refresh([])
 
@@ -419,6 +434,10 @@ class WumpusWorldGUI:
         self.agent.clear_action_facts()
         self.agent.assert_percept(self.obs)
         self.agent.update_time_counter(self.obs)
+
+        if result.done:
+            self.close()
+            return
 
         agenda_before = self.agent.agenda_snapshot()
         self.refresh(agenda_before)
@@ -439,7 +458,11 @@ class WumpusWorldGUI:
         self.refresh([])
 
     def run(self):
-        self.root.mainloop()
+        try:
+            self.root.mainloop()
+        finally:
+            if self.root.winfo_exists():
+                self.root.destroy()
 
 
 # ------------------ MAIN ------------------
@@ -475,6 +498,11 @@ def parse_args():
         default="agent.clp",
         help="Path to CLIPS agent file",
     )
+    parser.add_argument(
+        "--detach",
+        action="store_true",
+        help="Launch the GUI in a separate process and return immediately",
+    )
     return parser.parse_args()
 
 
@@ -482,6 +510,24 @@ def parse_args():
 
 def main():
     args = parse_args()
+
+    if args.detach:
+        script_path = str(Path(__file__).resolve())
+        launch_args = [sys.executable, script_path]
+        if args.map_file:
+            launch_args.extend(["-m", args.map_file])
+        if args.agent_file:
+            launch_args.extend(["-a", args.agent_file])
+
+        subprocess.Popen(
+            launch_args,
+            start_new_session=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        print("Wumpus avviato in background.")
+        return
 
     try:
         if args.map_file:
