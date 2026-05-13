@@ -1,200 +1,140 @@
 ;; =========================================================
-;; MODULE MAIN (Data Structures)
+;; MODULO MAIN
 ;; =========================================================
 (defmodule MAIN (export ?ALL))
 
 (deftemplate percept
-  (slot x) (slot y)
-  (slot steps)      
-  (slot breeze)
-  (slot stench)
-  (slot glitter)
-  (slot energy)
+   (slot x) (slot y) (slot steps) (slot breeze) (slot stench) (slot glitter) (slot energy)
+)
+(deftemplate counter (slot step))
+(deftemplate action (slot move))
+
+(deftemplate cella
+   (slot x) (slot y)
+   (slot visitata (default FALSE))
+   (slot sicura (default FALSE))
+   (slot da-x (default -1))
+   (slot da-y (default -1))
 )
 
-(deftemplate counter
-  (slot step)
-)
+(deftemplate cella-precedente (slot x) (slot y))
 
-(deftemplate action
-  (slot move)
-)
-
-;; --- NEW KNOWLEDGE BASE (KB) ---
-(deftemplate cell
-  (slot x) (slot y)
-  (slot visited (default FALSE))
-)
-
-(deftemplate danger
-  (slot x) (slot y)
-  (slot cf (default 0.0)) ; Certainty Factor for hazards
-)
-
-(deftemplate wall
-  (slot x) (slot y)
-)
-
-(deftemplate last-pos
-  (slot x) (slot y) (slot dir (default none))
-)
-
-(deftemplate evaluated-danger (slot x) (slot y))
-
-;; --- INIT ---
 (deffacts initial
-  (counter (step 0))
-  (last-pos (x -1) (y -1) (dir none))
+   (counter (step 0))
+   (cella-precedente (x 0) (y 0))
+   ;; Dichiariamo [0,0] subito, così non ha valori sballati come -1
+   (cella (x 0) (y 0) (visitata TRUE) (sicura TRUE) (da-x 0) (da-y 0))
 )
 
-;; The cycle: First update the KB, then choose the move
-(defrule deliberate
-  (counter (step ?step))
-  =>
-  (focus PERCEPTION DECISION)
+(defrule MAIN::deliberate
+   (counter (step ?step))
+   =>
+   (focus PERCEZIONE DECISIONE)
 )
 
-
 ;; =========================================================
-;; MODULE PERCEPTION (Update KB & CF Choices)
+;; MODULO PERCEZIONE
 ;; =========================================================
-(defmodule PERCEPTION (import MAIN ?ALL))
+(defmodule PERCEZIONE (import MAIN ?ALL))
 
-;; 1. Clean the action of the previous step
-(defrule clean-old-action
-   (declare (salience 200))
-   ?a <- (action)
+(defrule PERCEZIONE::pulisci-azione-vecchia
+   (declare (salience 2000))
+   ?a <- (action (move ?))
    =>
    (retract ?a)
 )
 
-;; 2. Detect Wall (If we tried to move but stayed in same cell)
-(defrule detect-wall
+(defrule PERCEZIONE::aggiorna-cella-esistente
    (percept (x ?x) (y ?y))
-   (last-pos (x ?px) (y ?py) (dir ?d))
-   (test (and (= ?x ?px) (= ?y ?py)))
-   (test (neq ?d none))
+   (cella-precedente (x ?px) (y ?py))
+   ?c <- (cella (x ?x) (y ?y) (visitata FALSE))
    =>
-   (if (eq ?d right) then (assert (wall (x (+ ?x 1)) (y ?y))))
-   (if (eq ?d left)  then (assert (wall (x (- ?x 1)) (y ?y))))
-   (if (eq ?d up)    then (assert (wall (x ?x) (y (- ?y 1)))))
-   (if (eq ?d down)  then (assert (wall (x ?x) (y (+ ?y 1)))))
+   (modify ?c (visitata TRUE) (sicura TRUE) (da-x ?px) (da-y ?py))
 )
 
-;; 3. Mark the current cell as visited
-(defrule mark-visited
+(defrule PERCEZIONE::crea-cella-nuova
    (percept (x ?x) (y ?y))
-   (not (cell (x ?x) (y ?y) (visited TRUE)))
+   (cella-precedente (x ?px) (y ?py))
+   (not (cella (x ?x) (y ?y)))
    =>
-   (assert (cell (x ?x) (y ?y) (visited TRUE)))
+   (assert (cella (x ?x) (y ?y) (visitata TRUE) (sicura TRUE) (da-x ?px) (da-y ?py)))
 )
 
-;; 4. CF Choices: If Breeze or Stench, mark neighbors with CF 0.5
-(defrule evaluate-danger
-   (percept (x ?x) (y ?y) (breeze ?b) (stench ?s))
-   (test (or (eq ?b TRUE) (eq ?s TRUE)))
-   (not (evaluated-danger (x ?x) (y ?y)))
+(defrule PERCEZIONE::deduci-celle-sicure
+   (percept (x ?x) (y ?y) (breeze FALSE) (stench FALSE))
    =>
-   (assert (evaluated-danger (x ?x) (y ?y)))
-   (assert (danger (x (+ ?x 1)) (y ?y) (cf 0.5)))
-   (assert (danger (x (- ?x 1)) (y ?y) (cf 0.5)))
-   (assert (danger (x ?x) (y (+ ?y 1)) (cf 0.5)))
-   (assert (danger (x ?x) (y (- ?y 1)) (cf 0.5)))
+   (assert (cella (x (+ ?x 1)) (y ?y) (sicura TRUE)))
+   (assert (cella (x (- ?x 1)) (y ?y) (sicura TRUE)))
+   (assert (cella (x ?x) (y (+ ?y 1)) (sicura TRUE)))
+   (assert (cella (x ?x) (y (- ?y 1)) (sicura TRUE)))
 )
-
 
 ;; =========================================================
-;; MODULE DECISION (Choose Action)
+;; MODULO DECISIONE
 ;; =========================================================
-(defmodule DECISION (import MAIN ?ALL))
+(defmodule DECISIONE (import MAIN ?ALL))
 
-;; Save our intention so Perception can detect walls next turn
-(defrule save-intent
+(defrule DECISIONE::ricorda-prima-di-muovere
    (declare (salience 1000))
-   (action (move ?dir))
-   ?lp <- (last-pos)
    (percept (x ?x) (y ?y))
+   ?vecchia <- (cella-precedente (x ?vx) (y ?vy))
+   (test (or (neq ?x ?vx) (neq ?y ?vy))) 
    =>
-   (modify ?lp (x ?x) (y ?y) (dir ?dir))
+   (retract ?vecchia)
+   (assert (cella-precedente (x ?x) (y ?y)))
 )
 
-;; --- PRIORITY 100: WIN! ---
-(defrule grab-gold
+;; --- PRIORITÀ 100: Esplora nuove celle SICURE ---
+(defrule DECISIONE::esplora-destra-sicura
    (declare (salience 100))
-   (percept (glitter TRUE))
+   (not (action (move ?))) ; <-- EVITA LE MOSSE MULTIPLE
+   (percept (x ?x) (y ?y))
+   (cella (x =(+ ?x 1)) (y ?y) (visitata FALSE) (sicura TRUE))
+   => 
+   (assert (action (move right)))
+   (printout t "-> Sicuro: Esploro a DESTRA verso [" (+ ?x 1) "," ?y "]" crlf)
+)
+
+(defrule DECISIONE::esplora-sinistra-sicura
+   (declare (salience 100))
+   (not (action (move ?))) ; <-- EVITA LE MOSSE MULTIPLE
+   (percept (x ?x) (y ?y))
+   (cella (x =(- ?x 1)) (y ?y) (visitata FALSE) (sicura TRUE))
+   => 
+   (assert (action (move left)))
+   (printout t "-> Sicuro: Esploro a SINISTRA verso [" (- ?x 1) "," ?y "]" crlf)
+)
+
+(defrule DECISIONE::esplora-su-sicura
+   (declare (salience 100))
+   (not (action (move ?))) ; <-- EVITA LE MOSSE MULTIPLE
+   (percept (x ?x) (y ?y))
+   (cella (x ?x) (y =(- ?y 1)) (visitata FALSE) (sicura TRUE))
+   => 
+   (assert (action (move up)))
+   (printout t "-> Sicuro: Esploro in ALTO verso [" ?x "," (- ?y 1) "]" crlf)
+)
+
+(defrule DECISIONE::esplora-giu-sicura
+   (declare (salience 100))
+   (not (action (move ?))) ; <-- EVITA LE MOSSE MULTIPLE
+   (percept (x ?x) (y ?y))
+   (cella (x ?x) (y =(+ ?y 1)) (visitata FALSE) (sicura TRUE))
+   => 
+   (assert (action (move down)))
+   (printout t "-> Sicuro: Esploro in BASSO verso [" ?x "," (+ ?y 1) "]" crlf)
+)
+
+;; --- PRIORITÀ 50: Filo di Arianna (Ritirata se non ci sono vie sicure) ---
+(defrule DECISIONE::torna-sui-tuoi-passi
+   (declare (salience 50))
+   (not (action (move ?))) ; <-- EVITA LE MOSSE MULTIPLE
+   (percept (x ?x) (y ?y))
+   (cella (x ?x) (y ?y) (da-x ?px) (da-y ?py)) 
+   (test (or (neq ?x ?px) (neq ?y ?py))) 
    =>
-   (assert (action (move grab)))
-   (printout t "ACTION: GRAB GOLD!" crlf)
-)
-
-;; --- PRIORITY 50: EXPLORE (Avoid visited, avoid danger) ---
-(defrule explore-right
-   (declare (salience 50))
-   (percept (x ?x) (y ?y))
-   (not (cell (x =(+ ?x 1)) (y ?y) (visited TRUE)))
-   (not (danger (x =(+ ?x 1)) (y ?y)))
-   (not (wall (x =(+ ?x 1)) (y ?y)))
-   => (assert (action (move right)))
-)
-(defrule explore-left
-   (declare (salience 50))
-   (percept (x ?x) (y ?y))
-   (not (cell (x =(- ?x 1)) (y ?y) (visited TRUE)))
-   (not (danger (x =(- ?x 1)) (y ?y)))
-   (not (wall (x =(- ?x 1)) (y ?y)))
-   => (assert (action (move left)))
-)
-(defrule explore-up
-   (declare (salience 50))
-   (percept (x ?x) (y ?y))
-   (not (cell (x ?x) (y =(- ?y 1)) (visited TRUE)))
-   (not (danger (x ?x) (y =(- ?y 1))))
-   (not (wall (x ?x) (y =(- ?y 1))))
-   => (assert (action (move up)))
-)
-(defrule explore-down
-   (declare (salience 50))
-   (percept (x ?x) (y ?y))
-   (not (cell (x ?x) (y =(+ ?y 1)) (visited TRUE)))
-   (not (danger (x ?x) (y =(+ ?y 1))))
-   (not (wall (x ?x) (y =(+ ?y 1))))
-   => (assert (action (move down)))
-)
-
-;; --- PRIORITY 25: BACKTRACK (If blocked, go to visited cells) ---
-(defrule backtrack-right
-   (declare (salience 25))
-   (percept (x ?x) (y ?y))
-   (cell (x =(+ ?x 1)) (y ?y) (visited TRUE))
-   (not (wall (x =(+ ?x 1)) (y ?y)))
-   => (assert (action (move right)))
-)
-(defrule backtrack-left
-   (declare (salience 25))
-   (percept (x ?x) (y ?y))
-   (cell (x =(- ?x 1)) (y ?y) (visited TRUE))
-   (not (wall (x =(- ?x 1)) (y ?y)))
-   => (assert (action (move left)))
-)
-(defrule backtrack-up
-   (declare (salience 25))
-   (percept (x ?x) (y ?y))
-   (cell (x ?x) (y =(- ?y 1)) (visited TRUE))
-   (not (wall (x ?x) (y =(- ?y 1))))
-   => (assert (action (move up)))
-)
-(defrule backtrack-down
-   (declare (salience 25))
-   (percept (x ?x) (y ?y))
-   (cell (x ?x) (y =(+ ?y 1)) (visited TRUE))
-   (not (wall (x ?x) (y =(+ ?y 1))))
-   => (assert (action (move down)))
-)
-
-;; --- PRIORITY 10: QUIT ---
-(defrule quit-game
-   (declare (salience 10))
-   (percept (x 0) (y 0))
-   =>
-   (assert (action (move quit)))
+   (if (= ?px (+ ?x 1)) then (assert (action (move right))) (printout t "<- Pericolo! Arretro a DESTRA verso [" ?px "," ?py "]" crlf))
+   (if (= ?px (- ?x 1)) then (assert (action (move left)))  (printout t "<- Pericolo! Arretro a SINISTRA verso [" ?px "," ?py "]" crlf))
+   (if (= ?py (- ?y 1)) then (assert (action (move up)))    (printout t "<- Pericolo! Arretro in ALTO verso [" ?px "," ?py "]" crlf))
+   (if (= ?py (+ ?y 1)) then (assert (action (move down)))  (printout t "<- Pericolo! Arretro in BASSO verso [" ?px "," ?py "]" crlf))
 )
