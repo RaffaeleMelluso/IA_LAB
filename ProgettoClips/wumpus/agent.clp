@@ -1,5 +1,5 @@
 ;; =========================================================
-;; MODULO MAIN: Strutture Dati e Controllo
+;; MODULO MAIN
 ;; =========================================================
 (defmodule MAIN (export ?ALL))
 
@@ -10,74 +10,88 @@
 (deftemplate cella
    (slot x) (slot y)
    (slot visitata (default FALSE))
-   (slot da-x (default -1)) (slot da-y (default -1))      
-   (slot cf-pit (default 0.0))    ; CF Pozzo (1.0 = certo, -1.0 = sicuro)
-   (slot cf-wumpus (default 0.0)) ; CF Wumpus
+   (slot da-x (default -1)) (slot da-y (default -1))
+   (slot cf-pit (default 0.0))    ; CF per i Pozzi (-1.0 = sicuro)
+   (slot cf-wumpus (default 0.0)) ; CF per il Wumpus (-1.0 = sicuro)
 )
 
 (deftemplate muro (slot x) (slot y))
-(deftemplate memoria-azione (slot step) (slot comando) (slot da-x) (slot da-y))
-(deftemplate stato-agente (slot fase (default esplorazione)) (slot oro-preso (default FALSE)))
+(deftemplate memoria-azione (slot comando) (slot da-x) (slot da-y))
+(deftemplate stato-agente (slot oro-preso (default FALSE)) (slot fase (default esplorazione)))
+(deftemplate intenzione-registrata)
 
-;; Supporto per il Ragionamento Matematico
 (deftemplate valutata-cella (slot x) (slot y))
 (deftemplate richiesta-cf-pit (slot x) (slot y) (slot val))
 (deftemplate richiesta-cf-wumpus (slot x) (slot y) (slot val))
 
 (deffacts initial
    (counter (step 0))
-   (stato-agente (fase esplorazione) (oro-preso FALSE))
-   ;; Inizializza la partenza [0,0]
+   (stato-agente (oro-preso FALSE) (fase esplorazione))
    (cella (x 0) (y 0) (visitata TRUE) (da-x 0) (da-y 0) (cf-pit -1.0) (cf-wumpus -1.0))
-   ;; Inizializza una memoria vuota per non far crashare le regole al turno 0
-   (memoria-azione (step -1) (comando none) (da-x 0) (da-y 0))
+   (memoria-azione (comando none) (da-x 0) (da-y 0))
+)
+
+;; ANTICORPO 1: Uccide i dati fantasma di Python (Confronta gli step)
+(defrule MAIN::pulisci-percept-vecchi
+   (declare (salience 10000))
+   ?p1 <- (percept (steps ?s1))
+   ?p2 <- (percept (steps ?s2&:(< ?s2 ?s1)))
+   =>
+   (retract ?p2)
 )
 
 (defrule MAIN::deliberate
    (declare (salience -10))
-   (counter (step ?step))
+   (percept)
    =>
    (focus PERCEZIONE RAGIONAMENTO DECISIONE)
 )
 
 ;; =========================================================
-;; MODULO PERCEZIONE: Memoria e Collisioni
+;; MODULO PERCEZIONE: Aggiorna e Rileva Ostacoli
 ;; =========================================================
 (defmodule PERCEZIONE (import MAIN ?ALL))
 
-(defrule PERCEZIONE::pulisci-azione-vecchia
+(defrule PERCEZIONE::pulisci-azione
    (declare (salience 2000))
-   ?a <- (action)
-   => (retract ?a))
+   ?a <- (action) => (retract ?a))
 
-;; REGOLA FONDAMENTALE RIPRISTINATA: Segna che sei entrato in una cella!
-(defrule PERCEZIONE::aggiorna-cella
+(defrule PERCEZIONE::pulisci-registrazione
+   (declare (salience 2000))
+   ?r <- (intenzione-registrata) => (retract ?r))
+
+(defrule PERCEZIONE::aggiorna-mappa
    (percept (x ?x) (y ?y))
-   ?c <- (cella (x ?x) (y ?y) (visitata FALSE))
    (memoria-azione (da-x ?px) (da-y ?py))
+   ?c <- (cella (x ?x) (y ?y) (visitata FALSE))
    =>
-   (modify ?c (visitata TRUE) (da-x ?px) (da-y ?py))
-   (printout t "-> Aggiorno cella [" ?x "," ?y "], provengo da [" ?px "," ?py "]" crlf))
+   (modify ?c (visitata TRUE) (da-x ?px) (da-y ?py)))
+
+(defrule PERCEZIONE::crea-cella-mappa
+   (percept (x ?x) (y ?y))
+   (memoria-azione (da-x ?px) (da-y ?py))
+   (not (cella (x ?x) (y ?y)))
+   =>
+   (assert (cella (x ?x) (y ?y) (visitata TRUE) (da-x ?px) (da-y ?py) (cf-pit -1.0) (cf-wumpus -1.0))))
 
 (defrule PERCEZIONE::rileva-muro
    (declare (salience 100))
    (percept (x ?x) (y ?y))
    ?mem <- (memoria-azione (comando ?c) (da-x ?vx) (da-y ?vy))
-   (test (and (= ?x ?vx) (= ?y ?vy))) ; Se non ci siamo mossi...
+   (test (and (= ?x ?vx) (= ?y ?vy))) 
    (test (or (eq ?c up) (eq ?c down) (eq ?c left) (eq ?c right)))
    =>
    (bind ?mx ?x) (bind ?my ?y)
    (if (eq ?c right) then (bind ?mx (+ ?x 1)))
-   (if (eq ?c left) then (bind ?mx (- ?x 1)))
-   (if (eq ?c up) then (bind ?my (- ?y 1))) ; Ricorda: In Python l'alto è Y-1
-   (if (eq ?c down) then (bind ?my (+ ?y 1)))
+   (if (eq ?c left)  then (bind ?mx (- ?x 1)))
+   (if (eq ?c up)    then (bind ?my (- ?y 1)))
+   (if (eq ?c down)  then (bind ?my (+ ?y 1)))
    (assert (muro (x ?mx) (y ?my)))
-   (modify ?mem (comando none)) ; Resetta l'azione per non sbattere all'infinito
-   (printout t "   !! SBANG! Muro rilevato e memorizzato in [" ?mx "," ?my "]" crlf))
-
+   (modify ?mem (comando none))
+   (printout t "   !! SBANG! Muro fisico rilevato in [" ?mx "," ?my "]" crlf))
 
 ;; =========================================================
-;; MODULO RAGIONAMENTO: Certainty Factors (CF)
+;; MODULO RAGIONAMENTO: Logica Probabilistica (CF)
 ;; =========================================================
 (defmodule RAGIONAMENTO (import MAIN ?ALL))
 
@@ -86,20 +100,22 @@
    (not (valutata-cella (x ?x) (y ?y)))
    =>
    (assert (valutata-cella (x ?x) (y ?y)))
-   ;; Gestione Pozzi
-   (bind ?val-p (if (eq ?b TRUE) then 0.4 else -1.0))
+   
+   (if (and (eq ?b FALSE) (eq ?s FALSE)) then (printout t "   [+] Dintorni sicuri da [" ?x "," ?y "]." crlf))
+   (if (eq ?b TRUE) then (printout t "   [!] BREZZA in [" ?x "," ?y "]! Pericolo Pozzi." crlf))
+   (if (eq ?s TRUE) then (printout t "   [!] PUZZA in [" ?x "," ?y "]! Pericolo Wumpus." crlf))
+   
+   (if (eq ?b TRUE) then (bind ?val-p 0.4) else (bind ?val-p -1.0))
    (assert (richiesta-cf-pit (x (+ ?x 1)) (y ?y) (val ?val-p)))
    (assert (richiesta-cf-pit (x (- ?x 1)) (y ?y) (val ?val-p)))
    (assert (richiesta-cf-pit (x ?x) (y (+ ?y 1)) (val ?val-p)))
    (assert (richiesta-cf-pit (x ?x) (y (- ?y 1)) (val ?val-p)))
-   ;; Gestione Wumpus
-   (bind ?val-w (if (eq ?s TRUE) then 0.4 else -1.0))
+   
+   (if (eq ?s TRUE) then (bind ?val-w 0.4) else (bind ?val-w -1.0))
    (assert (richiesta-cf-wumpus (x (+ ?x 1)) (y ?y) (val ?val-w)))
    (assert (richiesta-cf-wumpus (x (- ?x 1)) (y ?y) (val ?val-w)))
    (assert (richiesta-cf-wumpus (x ?x) (y (+ ?y 1)) (val ?val-w)))
-   (assert (richiesta-cf-wumpus (x ?x) (y (- ?y 1)) (val ?val-w)))
-   (if (or (eq ?b TRUE) (eq ?s TRUE)) then (printout t "   [!] PERICOLO avvertito in [" ?x "," ?y "]" crlf))
-)
+   (assert (richiesta-cf-wumpus (x ?x) (y (- ?y 1)) (val ?val-w))))
 
 (defrule RAGIONAMENTO::crea-cella-per-cf-p
    (declare (salience 50))
@@ -111,6 +127,7 @@
    (richiesta-cf-wumpus (x ?x) (y ?y)) (not (cella (x ?x) (y ?y)))
    => (assert (cella (x ?x) (y ?y))))
 
+;; La formula matematica del professore si applica qui
 (defrule RAGIONAMENTO::applica-cf-pit
    (declare (salience 10))
    ?r <- (richiesta-cf-pit (x ?x) (y ?y) (val ?n))
@@ -130,106 +147,87 @@
     else (if (>= ?v 0.0) then (modify ?c (cf-wumpus (- (+ ?v ?n) (* ?v ?n)))))))
 
 ;; =========================================================
-;; MODULO DECISIONE: Esplorazione e Fuga
+;; MODULO DECISIONE: Esplorazione o Ritirata
 ;; =========================================================
 (defmodule DECISIONE (import MAIN ?ALL))
 
-(defrule DECISIONE::registra-azione
+;; ANTICORPO 2: Aggiornamento memoria infallibile
+(defrule DECISIONE::registra-intenzione
    (declare (salience 1000))
-   (counter (step ?s)) (percept (x ?x) (y ?y)) (action (move ?dir))
-   ?mem <- (memoria-azione (step ?old-s))
-   (test (neq ?s ?old-s)) ; Memorizza una sola volta a turno
-   =>
-   (modify ?mem (step ?s) (comando ?dir) (da-x ?x) (da-y ?y)))
+   (percept (x ?x) (y ?y)) (action (move ?dir))
+   (not (intenzione-registrata))
+   ?mem <- (memoria-azione)
+   => 
+   (modify ?mem (comando ?dir) (da-x ?x) (da-y ?y))
+   (assert (intenzione-registrata)))
 
 (defrule DECISIONE::prendi-oro
-   (declare (salience 100)) (not (action (move ?)))
+   (declare (salience 150)) (not (action))
    (percept (glitter TRUE)) ?s <- (stato-agente (oro-preso FALSE))
-   => (assert (action (move grab))) (modify ?s (oro-preso TRUE) (fase fuga)) (printout t ">>> ORO PRESO! Inizia la fuga!" crlf))
+   => (assert (action (move grab))) (modify ?s (oro-preso TRUE) (fase fuga)) (printout t ">>> ORO PRESO! Fuga attivata!" crlf))
 
-(defrule DECISIONE::esci
-   (declare (salience 150)) (not (action (move ?)))
+(defrule DECISIONE::esci-vincitore
+   (declare (salience 200)) (not (action))
    (percept (x 0) (y 0)) (stato-agente (oro-preso TRUE))
-   => (assert (action (move quit))) (printout t ">>> VITTORIA! Uscito dalla tana!" crlf))
+   => (assert (action (move quit))) (printout t ">>> VITTORIA! Missione compiuta!" crlf))
 
-(defrule DECISIONE::fuga-verso-casa
-   (declare (salience 80)) (not (action (move ?)))
-   (stato-agente (fase fuga)) (percept (x ?x) (y ?y))
-   (cella (x ?x) (y ?y) (da-x ?px) (da-y ?py))
-   (test (or (neq ?x ?px) (neq ?y ?py)))
-   =>
-   (if (= ?px (+ ?x 1)) then (assert (action (move right))) (printout t "Fuga: DESTRA verso [" ?px "," ?py "]" crlf))
-   (if (= ?px (- ?x 1)) then (assert (action (move left))) (printout t "Fuga: SINISTRA verso [" ?px "," ?py "]" crlf))
-   (if (= ?py (- ?y 1)) then (assert (action (move up))) (printout t "Fuga: ALTO verso [" ?px "," ?py "]" crlf))
-   (if (= ?py (+ ?y 1)) then (assert (action (move down))) (printout t "Fuga: BASSO verso [" ?px "," ?py "]" crlf)))
+;; --- ESPLORAZIONE SICURA AL 100% ---
+(defrule DECISIONE::vai-destra
+   (declare (salience 50)) (not (action)) (stato-agente (fase esplorazione)) (percept (x ?x) (y ?y))
+   (cella (x =(+ ?x 1)) (y ?y) (visitata FALSE) (cf-pit -1.0) (cf-wumpus -1.0)) (not (muro (x =(+ ?x 1)) (y ?y)))
+   => (assert (action (move right))) (printout t "-> Sicuro: DESTRA verso [" (+ ?x 1) "," ?y "]" crlf))
 
-;; --- ESPLORAZIONE SICURA (Priorità 50) ---
-(defrule DECISIONE::vai-destra-sicuro
-   (declare (salience 50)) (not (action (move ?)))
-   (percept (x ?x) (y ?y))
-   (cella (x =(+ ?x 1)) (y ?y) (visitata FALSE) (cf-pit -1.0) (cf-wumpus -1.0))
-   (not (muro (x =(+ ?x 1)) (y ?y)))
-   => (assert (action (move right))) (printout t "-> Sicuro: vado a DESTRA in [" (+ ?x 1) "," ?y "]" crlf))
+(defrule DECISIONE::vai-sinistra
+   (declare (salience 50)) (not (action)) (stato-agente (fase esplorazione)) (percept (x ?x) (y ?y))
+   (cella (x =(- ?x 1)) (y ?y) (visitata FALSE) (cf-pit -1.0) (cf-wumpus -1.0)) (not (muro (x =(- ?x 1)) (y ?y)))
+   => (assert (action (move left))) (printout t "-> Sicuro: SINISTRA verso [" (- ?x 1) "," ?y "]" crlf))
 
-(defrule DECISIONE::vai-sinistra-sicuro
-   (declare (salience 50)) (not (action (move ?)))
-   (percept (x ?x) (y ?y))
-   (cella (x =(- ?x 1)) (y ?y) (visitata FALSE) (cf-pit -1.0) (cf-wumpus -1.0))
-   (not (muro (x =(- ?x 1)) (y ?y)))
-   => (assert (action (move left))) (printout t "-> Sicuro: vado a SINISTRA in [" (- ?x 1) "," ?y "]" crlf))
+(defrule DECISIONE::vai-su
+   (declare (salience 50)) (not (action)) (stato-agente (fase esplorazione)) (percept (x ?x) (y ?y))
+   (cella (x ?x) (y =(- ?y 1)) (visitata FALSE) (cf-pit -1.0) (cf-wumpus -1.0)) (not (muro (x ?x) (y =(- ?y 1))))
+   => (assert (action (move up))) (printout t "-> Sicuro: ALTO verso [" ?x "," (- ?y 1) "]" crlf))
 
-(defrule DECISIONE::vai-su-sicuro
-   (declare (salience 50)) (not (action (move ?)))
-   (percept (x ?x) (y ?y))
-   (cella (x ?x) (y =(- ?y 1)) (visitata FALSE) (cf-pit -1.0) (cf-wumpus -1.0))
-   (not (muro (x ?x) (y =(- ?y 1))))
-   => (assert (action (move up))) (printout t "-> Sicuro: vado in ALTO in [" ?x "," (- ?y 1) "]" crlf))
+(defrule DECISIONE::vai-giu
+   (declare (salience 50)) (not (action)) (stato-agente (fase esplorazione)) (percept (x ?x) (y ?y))
+   (cella (x ?x) (y =(+ ?y 1)) (visitata FALSE) (cf-pit -1.0) (cf-wumpus -1.0)) (not (muro (x ?x) (y =(+ ?y 1))))
+   => (assert (action (move down))) (printout t "-> Sicuro: BASSO verso [" ?x "," (+ ?y 1) "]" crlf))
 
-(defrule DECISIONE::vai-giu-sicuro
-   (declare (salience 50)) (not (action (move ?)))
-   (percept (x ?x) (y ?y))
-   (cella (x ?x) (y =(+ ?y 1)) (visitata FALSE) (cf-pit -1.0) (cf-wumpus -1.0))
-   (not (muro (x ?x) (y =(+ ?y 1))))
-   => (assert (action (move down))) (printout t "-> Sicuro: vado in BASSO in [" ?x "," (+ ?y 1) "]" crlf))
-
-;; --- RISCHIO CALCOLATO (Priorità 40) ---
-(defrule DECISIONE::vai-destra-rischio
-   (declare (salience 40)) (not (action (move ?)))
-   (percept (x ?x) (y ?y))
+;; --- RISCHIO CALCOLATO (Se non ci sono vie sicure al 100%, rischia se il CF < 50%) ---
+(defrule DECISIONE::rischio-destra
+   (declare (salience 40)) (not (action)) (stato-agente (fase esplorazione)) (percept (x ?x) (y ?y))
    (cella (x =(+ ?x 1)) (y ?y) (visitata FALSE) (cf-pit ?cp) (cf-wumpus ?cw))
    (test (< ?cp 0.5)) (test (< ?cw 0.5)) (not (muro (x =(+ ?x 1)) (y ?y)))
-   => (assert (action (move right))) (printout t "?> Rischio accettabile: DESTRA [" (+ ?x 1) "," ?y "] (P:" ?cp " W:" ?cw ")" crlf))
+   => (assert (action (move right))) (printout t "?> Rischio accettabile: DESTRA (Pozzo:" ?cp " Wumpus:" ?cw ")" crlf))
 
-(defrule DECISIONE::vai-sinistra-rischio
-   (declare (salience 40)) (not (action (move ?)))
-   (percept (x ?x) (y ?y))
+(defrule DECISIONE::rischio-sinistra
+   (declare (salience 40)) (not (action)) (stato-agente (fase esplorazione)) (percept (x ?x) (y ?y))
    (cella (x =(- ?x 1)) (y ?y) (visitata FALSE) (cf-pit ?cp) (cf-wumpus ?cw))
    (test (< ?cp 0.5)) (test (< ?cw 0.5)) (not (muro (x =(- ?x 1)) (y ?y)))
-   => (assert (action (move left))) (printout t "?> Rischio accettabile: SINISTRA [" (- ?x 1) "," ?y "] (P:" ?cp " W:" ?cw ")" crlf))
+   => (assert (action (move left))) (printout t "?> Rischio accettabile: SINISTRA (Pozzo:" ?cp " Wumpus:" ?cw ")" crlf))
 
-(defrule DECISIONE::vai-su-rischio
-   (declare (salience 40)) (not (action (move ?)))
-   (percept (x ?x) (y ?y))
+(defrule DECISIONE::rischio-su
+   (declare (salience 40)) (not (action)) (stato-agente (fase esplorazione)) (percept (x ?x) (y ?y))
    (cella (x ?x) (y =(- ?y 1)) (visitata FALSE) (cf-pit ?cp) (cf-wumpus ?cw))
    (test (< ?cp 0.5)) (test (< ?cw 0.5)) (not (muro (x ?x) (y =(- ?y 1))))
-   => (assert (action (move up))) (printout t "?> Rischio accettabile: ALTO [" ?x "," (- ?y 1) "] (P:" ?cp " W:" ?cw ")" crlf))
+   => (assert (action (move up))) (printout t "?> Rischio accettabile: ALTO (Pozzo:" ?cp " Wumpus:" ?cw ")" crlf))
 
-(defrule DECISIONE::vai-giu-rischio
-   (declare (salience 40)) (not (action (move ?)))
-   (percept (x ?x) (y ?y))
+(defrule DECISIONE::rischio-giu
+   (declare (salience 40)) (not (action)) (stato-agente (fase esplorazione)) (percept (x ?x) (y ?y))
    (cella (x ?x) (y =(+ ?y 1)) (visitata FALSE) (cf-pit ?cp) (cf-wumpus ?cw))
    (test (< ?cp 0.5)) (test (< ?cw 0.5)) (not (muro (x ?x) (y =(+ ?y 1))))
-   => (assert (action (move down))) (printout t "?> Rischio accettabile: BASSO [" ?x "," (+ ?y 1) "] (P:" ?cp " W:" ?cw ")" crlf))
+   => (assert (action (move down))) (printout t "?> Rischio accettabile: BASSO (Pozzo:" ?cp " Wumpus:" ?cw ")" crlf))
 
-;; --- RITIRATA (Priorità 25) ---
-(defrule DECISIONE::ritirata
-   (declare (salience 25)) (not (action (move ?)))
+;; --- RITIRATA E FUGA ---
+(defrule DECISIONE::ritirata-o-fuga
+   (declare (salience 25)) (not (action))
    (percept (x ?x) (y ?y))
-   (cella (x ?x) (y ?y) (da-x ?px) (da-y ?py))
-   (test (or (neq ?x ?px) (neq ?y ?py)))
+   (cella (x ?x) (y ?y) (da-x ?px) (da-y ?py)) (test (or (neq ?x ?px) (neq ?y ?py)))
    =>
-   (if (= ?px (+ ?x 1)) then (assert (action (move right))) (printout t "<- Strada bloccata. Ritirata a DESTRA verso [" ?px "," ?py "]" crlf))
-   (if (= ?px (- ?x 1)) then (assert (action (move left))) (printout t "<- Strada bloccata. Ritirata a SINISTRA verso [" ?px "," ?py "]" crlf))
-   (if (= ?py (- ?y 1)) then (assert (action (move up))) (printout t "<- Strada bloccata. Ritirata in ALTO verso [" ?px "," ?py "]" crlf))
-   (if (= ?py (+ ?y 1)) then (assert (action (move down))) (printout t "<- Strada bloccata. Ritirata in BASSO verso [" ?px "," ?py "]" crlf))
-)
+   (if (= ?px (+ ?x 1)) then (assert (action (move right))) (printout t "<- Arretro a DESTRA verso [" ?px "," ?py "]" crlf))
+   (if (= ?px (- ?x 1)) then (assert (action (move left)))  (printout t "<- Arretro a SINISTRA verso [" ?px "," ?py "]" crlf))
+   (if (= ?py (- ?y 1)) then (assert (action (move up)))    (printout t "<- Arretro in ALTO verso [" ?px "," ?py "]" crlf))
+   (if (= ?py (+ ?y 1)) then (assert (action (move down)))  (printout t "<- Arretro in BASSO verso [" ?px "," ?py "]" crlf)))
+
+(defrule DECISIONE::rinuncia
+   (declare (salience 10)) (not (action)) (percept (x 0) (y 0)) (stato-agente (fase esplorazione))
+   => (assert (action (move quit))) (printout t "!!! Tana bloccata o troppo rischiosa. Rinuncio ed esco." crlf))
