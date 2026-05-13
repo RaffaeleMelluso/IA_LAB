@@ -11,7 +11,7 @@
    (slot x) (slot y)
    (slot visitata (default FALSE))
    (slot da-x (default -1)) (slot da-y (default -1))
-   (slot cf-pit (default 0.0))    ; CF per i Pozzi (-1.0 = sicuro)
+   (slot cf-pit (default 0.0))    ; CF per i Pozzi (-1.0 = sicuro)   
    (slot cf-wumpus (default 0.0)) ; CF per il Wumpus (-1.0 = sicuro)
 )
 
@@ -105,13 +105,15 @@
    (if (eq ?b TRUE) then (printout t "   [!] BREZZA in [" ?x "," ?y "]! Pericolo Pozzi." crlf))
    (if (eq ?s TRUE) then (printout t "   [!] PUZZA in [" ?x "," ?y "]! Pericolo Wumpus." crlf))
    
-   (if (eq ?b TRUE) then (bind ?val-p 0.4) else (bind ?val-p -1.0))
+   ;; PARAMETRI CF MODIFICATI: Ora una singola brezza/puzza terrorizza l'agente (0.6 > 0.5)
+   
+   (if (eq ?b TRUE) then (bind ?val-p 0.6) else (bind ?val-p -1.0))
    (assert (richiesta-cf-pit (x (+ ?x 1)) (y ?y) (val ?val-p)))
    (assert (richiesta-cf-pit (x (- ?x 1)) (y ?y) (val ?val-p)))
    (assert (richiesta-cf-pit (x ?x) (y (+ ?y 1)) (val ?val-p)))
    (assert (richiesta-cf-pit (x ?x) (y (- ?y 1)) (val ?val-p)))
    
-   (if (eq ?s TRUE) then (bind ?val-w 0.4) else (bind ?val-w -1.0))
+   (if (eq ?s TRUE) then (bind ?val-w 0.6) else (bind ?val-w -1.0))
    (assert (richiesta-cf-wumpus (x (+ ?x 1)) (y ?y) (val ?val-w)))
    (assert (richiesta-cf-wumpus (x (- ?x 1)) (y ?y) (val ?val-w)))
    (assert (richiesta-cf-wumpus (x ?x) (y (+ ?y 1)) (val ?val-w)))
