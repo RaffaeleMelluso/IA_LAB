@@ -7,6 +7,10 @@
 (deftemplate action (slot move))
 (deftemplate counter (slot step))
 
+(deftemplate brezza-rilevata (slot x) (slot y))
+(deftemplate puzza-rilevata (slot x) (slot y))
+(deftemplate rischio-spostato (slot bx) (slot by) (slot sx) (slot sy))
+
 (deftemplate cella
    (slot x) (slot y)
    (slot visitata (default FALSE))
@@ -96,6 +100,11 @@
    =>
    (assert (valutata-cella (x ?x) (y ?y)))
    
+   ;; --- NUOVA MEMORIA DEI SENSORI ---
+   (if (eq ?b TRUE) then (assert (brezza-rilevata (x ?x) (y ?y))))
+   (if (eq ?s TRUE) then (assert (puzza-rilevata (x ?x) (y ?y))))
+   ;; ---------------------------------
+   
    (if (and (eq ?b FALSE) (eq ?s FALSE)) then (printout t "   [+] Dintorni sicuri da [" ?x "," ?y "]." crlf))
    (if (eq ?b TRUE) then (printout t "   [!] BREZZA in [" ?x "," ?y "]! Pericolo Pozzi (60%)." crlf))
    (if (eq ?s TRUE) then (printout t "   [!] PUZZA in [" ?x "," ?y "]! Pericolo Wumpus (60%)." crlf))
@@ -158,6 +167,39 @@
    =>
    (modify ?c-inn (cf-wumpus 0.0)) 
    (printout t "   [i] DEDUZIONE: Wumpus confermato in [" ?px "," ?py "]. Assolvo la cella [" ?ix "," ?iy "]!" crlf))
+
+;; --- DEDUZIONE PER ELIMINAZIONE (Il Principio di Sherlock Holmes) ---
+
+(defrule RAGIONAMENTO::eliminazione-pozzo
+   (declare (salience 8)) ; Agisce subito prima della matematica dei CF
+   (brezza-rilevata (x ?bx) (y ?by)) ; C'è una brezza qui
+   (cella (x ?sx) (y ?sy) (cf-pit -1.0)) ; Una cella adiacente è SICURA
+   (test (= (+ (abs (- ?bx ?sx)) (abs (- ?by ?sy))) 1)) ; Controllo adiacenza
+   (not (rischio-spostato (bx ?bx) (by ?by) (sx ?sx) (sy ?sy))) ; Non l'ho già calcolato
+   ?c-ignota <- (cella (x ?ix) (y ?iy) (cf-pit ?cf&:(and (> ?cf 0.0) (< ?cf 0.8)))) ; Cella sospetta
+   (test (= (+ (abs (- ?bx ?ix)) (abs (- ?by ?iy))) 1)) ; Adiacente alla stessa brezza
+   (test (or (neq ?sx ?ix) (neq ?sy ?iy))) ; Non è la stessa cella sicura
+   =>
+   (assert (rischio-spostato (bx ?bx) (by ?by) (sx ?sx) (sy ?sy)))
+   ;; Aggiungo un +0.3 (30%) di rischio alla cella rimasta incognita!
+   (assert (richiesta-cf-pit (x ?ix) (y ?iy) (val 0.3)))
+   (printout t "   [?] DEDUZIONE (Sherlock): [" ?sx "," ?sy "] e' sicura. Il pozzo sentito da [" ?bx "," ?by "] deve essere altrove! Aumento il rischio di [" ?ix "," ?iy "]" crlf)
+)
+
+(defrule RAGIONAMENTO::eliminazione-wumpus
+   (declare (salience 8))
+   (puzza-rilevata (x ?wx) (y ?wy)) 
+   (cella (x ?sx) (y ?sy) (cf-wumpus -1.0)) 
+   (test (= (+ (abs (- ?wx ?sx)) (abs (- ?wy ?sy))) 1))
+   (not (rischio-spostato (bx ?wx) (by ?wy) (sx ?sx) (sy ?sy)))
+   ?c-ignota <- (cella (x ?ix) (y ?iy) (cf-wumpus ?cf&:(and (> ?cf 0.0) (< ?cf 0.8))))
+   (test (= (+ (abs (- ?wx ?ix)) (abs (- ?wy ?iy))) 1))
+   (test (or (neq ?sx ?ix) (neq ?sy ?iy)))
+   =>
+   (assert (rischio-spostato (bx ?wx) (by ?wy) (sx ?sx) (sy ?sy)))
+   (assert (richiesta-cf-wumpus (x ?ix) (y ?iy) (val 0.3)))
+   (printout t "   [?] DEDUZIONE (Sherlock): [" ?sx "," ?sy "] e' sicura. Il Wumpus sentito da [" ?wx "," ?wy "] si nasconde altrove! Aumento il rischio di [" ?ix "," ?iy "]" crlf)
+)
 
 ;; =========================================================
 ;; MODULO DECISIONE
