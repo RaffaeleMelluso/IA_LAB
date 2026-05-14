@@ -13,16 +13,14 @@
    (slot da-x (default -1)) (slot da-y (default -1))
    (slot cf-pit (default 0.0))    
    (slot cf-wumpus (default 0.0))
-   (slot esaurita (default FALSE)) ; <--- NUOVO: Flag per i vicoli ciechi!
+   (slot esaurita (default FALSE))
 )
 
 (deftemplate muro (slot x) (slot y))
 (deftemplate memoria-azione (slot comando) (slot da-x) (slot da-y))
 (deftemplate stato-agente (slot oro-preso (default FALSE)) (slot fase (default esplorazione)))
 (deftemplate intenzione-registrata)
-
-
-
+(deftemplate pozzo-segnalato (slot x) (slot y))
 
 ;; Supporti per Ragionamento e GPS
 (deftemplate valutata-cella (slot x) (slot y))
@@ -30,7 +28,8 @@
 (deftemplate richiesta-cf-wumpus (slot x) (slot y) (slot val))
 (deftemplate brezza-rilevata (slot x) (slot y))
 (deftemplate puzza-rilevata (slot x) (slot y))
-(deftemplate rischio-spostato (slot bx) (slot by) (slot sx) (slot sy) (slot ix) (slot iy))
+;; [FIX] Aggiunti ix e iy per le accuse multiple di Sherlock
+(deftemplate rischio-spostato (slot bx) (slot by) (slot sx) (slot sy) (slot ix) (slot iy)) 
 (deftemplate target-sicuro (slot x) (slot y))
 
 (deffacts initial
@@ -53,6 +52,15 @@
    (percept)
    =>
    (focus PERCEZIONE RAGIONAMENTO DECISIONE))
+
+;; --- MOTORE STOCASTICO (Anti-Bias Direzionale) ---
+(defrule MAIN::attiva-scelte-random
+   (declare (salience 10000))
+   (not (strategia-random-impostata))
+   =>
+   (set-strategy random)
+   (assert (strategia-random-impostata))
+   (printout t ">>> Bias direzionale rimosso: L'agente lancia i dadi nei bivi paritari!" crlf))
 
 ;; =========================================================
 ;; MODULO PERCEZIONE: Aggiornamento Spaziale
@@ -158,7 +166,7 @@
    ?c-ignota <- (cella (x ?ix) (y ?iy) (cf-pit ?cf&:(and (> ?cf 0.0) (< ?cf 0.9))))
    (test (= (+ (abs (- ?bx ?ix)) (abs (- ?by ?iy))) 1)) 
    (test (or (neq ?sx ?ix) (neq ?sy ?iy))) 
-   ;; Ora il post-it controlla anche la cella incognita specifica!
+   ;; [FIX] Ora il post-it controlla anche la cella incognita specifica!
    (not (rischio-spostato (bx ?bx) (by ?by) (sx ?sx) (sy ?sy) (ix ?ix) (iy ?iy))) 
    =>
    (assert (rischio-spostato (bx ?bx) (by ?by) (sx ?sx) (sy ?sy) (ix ?ix) (iy ?iy)))
@@ -179,36 +187,36 @@
    (assert (richiesta-cf-wumpus (x ?ix) (y ?iy) (val 0.3)))
    (printout t "   [?] DEDUZIONE (Sherlock): [" ?sx "," ?sy "] e' sicura. Aumento il rischio di [" ?ix "," ?iy "]" crlf))
 
-
-;; --- ASSOLUZIONE LOGICA FIXATA (Soglia di sicurezza al 90%) ---
+;; --- ASSOLUZIONE LOGICA FIXATA ---
 (defrule RAGIONAMENTO::assoluzione-pozzo
    (declare (salience 5))
-   (cella (x ?px) (y ?py) (cf-pit ?cf-p&:(> ?cf-p 0.9))) ; <--- ALZATO A 0.9! Niente più falsi positivi
+   (cella (x ?px) (y ?py) (cf-pit ?cf-p&:(> ?cf-p 0.9))) 
    (valutata-cella (x ?bx) (y ?by)) 
    (test (= (+ (abs (- ?px ?bx)) (abs (- ?py ?by))) 1)) 
-   ?c-inn <- (cella (x ?ix) (y ?iy) (cf-pit ?cf-i&:(and (> ?cf-i 0.0) (< ?cf-i 0.9))))
+   ?c-inn <- (cella (x ?ix) (y ?iy) (cf-pit ?cf-i&:(> ?cf-i 0.0)))
    (test (= (+ (abs (- ?ix ?bx)) (abs (- ?iy ?by))) 1)) 
+   (test (or (neq ?ix ?px) (neq ?iy ?py))) ; [FIX] PREVIENE AUTO-ASSOLUZIONE!
    =>
    (modify ?c-inn (cf-pit 0.0)) 
    (printout t "   [i] ASSOLUZIONE: Pozzo confermato in [" ?px "," ?py "]. Cella [" ?ix "," ?iy "] dichiarata innocente!" crlf))
 
 (defrule RAGIONAMENTO::assoluzione-wumpus
    (declare (salience 5))
-   (cella (x ?px) (y ?py) (cf-wumpus ?cf-w&:(> ?cf-w 0.9))) ; <--- ALZATO A 0.9!
+   (cella (x ?px) (y ?py) (cf-wumpus ?cf-w&:(> ?cf-w 0.9))) 
    (valutata-cella (x ?bx) (y ?by)) 
    (test (= (+ (abs (- ?px ?bx)) (abs (- ?py ?by))) 1)) 
-   ?c-inn <- (cella (x ?ix) (y ?iy) (cf-wumpus ?cf-i&:(and (> ?cf-i 0.0) (< ?cf-i 0.9))))
+   ?c-inn <- (cella (x ?ix) (y ?iy) (cf-wumpus ?cf-i&:(> ?cf-i 0.0)))
    (test (= (+ (abs (- ?ix ?bx)) (abs (- ?iy ?by))) 1)) 
+   (test (or (neq ?ix ?px) (neq ?iy ?py))) 
    =>
    (modify ?c-inn (cf-wumpus 0.0)) 
    (printout t "   [i] ASSOLUZIONE: Wumpus confermato in [" ?px "," ?py "]. Cella [" ?ix "," ?iy "] dichiarata innocente!" crlf))
-
 
 ;; --- GESTIONE TARGET PER IL GPS ---
 (defrule RAGIONAMENTO::segnala-target-sicuro
    (cella (x ?x) (y ?y) (visitata FALSE) (cf-pit ?cp) (cf-wumpus ?cw))
    (test (<= ?cp 0.0)) (test (<= ?cw 0.0))
-   (not (muro (x ?x) (y ?y))) ; <--- L'ANTIDOTO AL LOOP! Se è un muro, ignoralo!
+   (not (muro (x ?x) (y ?y)))
    (not (target-sicuro (x ?x) (y ?y)))
    =>
    (assert (target-sicuro (x ?x) (y ?y))))
@@ -245,26 +253,67 @@
    (percept (glitter TRUE)) ?s <- (stato-agente (oro-preso FALSE))
    => (assert (action (move grab))) (modify ?s (oro-preso TRUE) (fase fuga)) (printout t ">>> ORO PRESO! Inizia la fuga!" crlf))
 
+;; =========================================================
+;; RECLAMO RICOMPENSE POZZI (+25 Punti) - Priorità 160
+;; =========================================================
+
+(defrule DECISIONE::segnala-pozzo-destra
+   (declare (salience 160)) (not (action))
+   (percept (x ?x) (y ?y))
+   (cella (x =(+ ?x 1)) (y ?y) (cf-pit ?cp&:(> ?cp 0.9)))
+   (not (pozzo-segnalato (x =(+ ?x 1)) (y ?y)))
+   =>
+   (assert (action (move pit-east)))
+   (assert (pozzo-segnalato (x (+ ?x 1)) (y ?y)))
+   (printout t "$$$ BINGO! Segnalo pozzo a DESTRA in [" (+ ?x 1) "," ?y "] e incasso 25 punti!" crlf))
+
+(defrule DECISIONE::segnala-pozzo-sinistra
+   (declare (salience 160)) (not (action))
+   (percept (x ?x) (y ?y))
+   (cella (x =(- ?x 1)) (y ?y) (cf-pit ?cp&:(> ?cp 0.9)))
+   (not (pozzo-segnalato (x =(- ?x 1)) (y ?y)))
+   =>
+   (assert (action (move pit-west)))
+   (assert (pozzo-segnalato (x (- ?x 1)) (y ?y)))
+   (printout t "$$$ BINGO! Segnalo pozzo a SINISTRA in [" (- ?x 1) "," ?y "] e incasso 25 punti!" crlf))
+
+(defrule DECISIONE::segnala-pozzo-su
+   (declare (salience 160)) (not (action))
+   (percept (x ?x) (y ?y))
+   (cella (x ?x) (y =(- ?y 1)) (cf-pit ?cp&:(> ?cp 0.9)))
+   (not (pozzo-segnalato (x ?x) (y =(- ?y 1))))
+   =>
+   (assert (action (move pit-north)))
+   (assert (pozzo-segnalato (x ?x) (y (- ?y 1))))
+   (printout t "$$$ BINGO! Segnalo pozzo in ALTO in [" ?x "," (- ?y 1) "] e incasso 25 punti!" crlf))
+
+(defrule DECISIONE::segnala-pozzo-giu
+   (declare (salience 160)) (not (action))
+   (percept (x ?x) (y ?y))
+   (cella (x ?x) (y =(+ ?y 1)) (cf-pit ?cp&:(> ?cp 0.9)))
+   (not (pozzo-segnalato (x ?x) (y =(+ ?y 1))))
+   =>
+   (assert (action (move pit-south)))
+   (assert (pozzo-segnalato (x ?x) (y (+ ?y 1))))
+   (printout t "$$$ BINGO! Segnalo pozzo in BASSO in [" ?x "," (+ ?y 1) "] e incasso 25 punti!" crlf))
+   
 (defrule DECISIONE::esci-vincitore
    (declare (salience 200)) (not (action))
    (percept (x 0) (y 0)) (stato-agente (oro-preso TRUE))
    => (assert (action (move quit))) (printout t ">>> VITTORIA! Uscito dalla tana!" crlf))
 
-
 ;; --- FUGA VERSO L'USCITA (Priorità 140) ---
-;; Si attiva in automatico non appena la fase passa da 'esplorazione' a 'fuga'.
 (defrule DECISIONE::fuga-verso-casa
    (declare (salience 140)) (not (action))
    (stato-agente (fase fuga))
    (percept (x ?x) (y ?y))
    (cella (x ?x) (y ?y) (da-x ?px) (da-y ?py))
-   (test (or (neq ?x ?px) (neq ?y ?py))) ; Controlla di non essere già arrivato in [0,0]
+   (test (or (neq ?x ?px) (neq ?y ?py)))
    =>
    (if (= ?px (+ ?x 1)) then (assert (action (move right))) (printout t "<<< FUGA VITTORIOSA: Corro a DESTRA verso [" ?px "," ?py "]" crlf))
    (if (= ?px (- ?x 1)) then (assert (action (move left)))  (printout t "<<< FUGA VITTORIOSA: Corro a SINISTRA verso [" ?px "," ?py "]" crlf))
    (if (= ?py (- ?y 1)) then (assert (action (move up)))    (printout t "<<< FUGA VITTORIOSA: Corro in ALTO verso [" ?px "," ?py "]" crlf))
-   (if (= ?py (+ ?y 1)) then (assert (action (move down)))  (printout t "<<< FUGA VITTORIOSA: Corro in BASSO verso [" ?px "," ?py "]" crlf))
-)
+   (if (= ?py (+ ?y 1)) then (assert (action (move down)))  (printout t "<<< FUGA VITTORIOSA: Corro in BASSO verso [" ?px "," ?py "]" crlf)))
 
 ;; --- ESPLORAZIONE SICURA AL 100% ---
 (defrule DECISIONE::vai-destra
@@ -292,14 +341,12 @@
    => (assert (action (move down))) (printout t "-> Sicuro: BASSO verso [" ?x "," (+ ?y 1) "]" crlf))
 
 ;; --- NAVIGATORE GPS ANTI-PING-PONG FLUIDO (Priorità 45) ---
-;; Usando <= invece di <, permettiamo all'agente di fare "passi laterali"
-;; per aggirare i muri senza bloccarsi nei minimi locali!
 (defrule DECISIONE::navigatore-destra
    (declare (salience 45)) (not (action)) (percept (x ?x) (y ?y))
    (target-sicuro (x ?tx) (y ?ty))
    (memoria-azione (da-x ?mx) (da-y ?my)) 
    (cella (x =(+ ?x 1)) (y ?y) (visitata TRUE)) (not (muro (x =(+ ?x 1)) (y ?y)))
-   (test (<= (+ (abs (- (+ ?x 1) ?tx)) (abs (- ?y ?ty))) (+ (abs (- ?x ?tx)) (abs (- ?y ?ty)))))
+   (test (<= (+ (abs (- (+ ?x 1) ?tx)) (abs (- ?y ?ty))) (+ (abs (- ?x ?tx)) (abs (- ?y ?ty))))) ; [FIX] <= permette mosse laterali
    (test (or (neq ?mx (+ ?x 1)) (neq ?my ?y))) 
    => (assert (action (move right))) (printout t ">>> GPS: Navigo verso DESTRA per raggiungere [" ?tx "," ?ty "]" crlf))
 
@@ -330,7 +377,7 @@
    (test (or (neq ?mx ?x) (neq ?my (+ ?y 1)))) 
    => (assert (action (move down))) (printout t ">>> GPS: Navigo in BASSO per raggiungere [" ?tx "," ?ty "]" crlf))
 
-;; --- RITIRATA STRATEGICA E BACKTRACKING (Priorità 25) ---
+;; --- RITIRATA STRATEGICA (Priorità 25) ---
 (defrule DECISIONE::ritirata-o-fuga
    (declare (salience 25)) (not (action))
    (percept (x ?x) (y ?y))
@@ -347,7 +394,6 @@
 ;; =========================================================
 
 ;; --- LIVELLO 1: Scommessa Calcolata (Priorità 28) ---
-;; Resta SOPRA la Ritirata: se il rischio è basso (60%), non perdere tempo a fuggire.
 (defrule DECISIONE::scommessa-calcolata-destra
    (declare (salience 28)) (not (action)) (stato-agente (fase esplorazione)) (percept (x ?x) (y ?y)) (not (target-sicuro)) 
    (cella (x =(+ ?x 1)) (y ?y) (visitata FALSE) (cf-pit ?cp&:(<= ?cp 0.65)) (cf-wumpus ?cw&:(<= ?cw 0.65))) (not (muro (x =(+ ?x 1)) (y ?y)))
@@ -369,7 +415,6 @@
    => (assert (action (move down))) (printout t "!!! SCOMMESSA CALCOLATA IN BASSO (Rischio P:" ?cp ", W:" ?cw ")" crlf))
 
 ;; --- LIVELLO 2: Scommessa Azzardata (Priorità 23) ---
-;; SCENDE SOTTO LA RITIRATA! Se il rischio è 85%, scappa e cerca un 60% altrove!
 (defrule DECISIONE::scommessa-azzardata-destra
    (declare (salience 23)) (not (action)) (stato-agente (fase esplorazione)) (percept (x ?x) (y ?y)) (not (target-sicuro)) 
    (cella (x =(+ ?x 1)) (y ?y) (visitata FALSE) (cf-pit ?cp&:(<= ?cp 0.85)) (cf-wumpus ?cw&:(<= ?cw 0.85))) (not (muro (x =(+ ?x 1)) (y ?y)))
