@@ -7,7 +7,7 @@
 
 (defmodule MAIN (export ?ALL))
 
-(deftemplate percept (slot x) (slot y) (slot steps) (slot breeze) (slot stench) (slot glitter) (slot energy))
+(deftemplate percept (slot x) (slot y) (slot w) (slot h) (slot steps) (slot breeze) (slot stench) (slot glitter) (slot energy))
 (deftemplate action (slot move))
 (deftemplate counter (slot step))
 
@@ -70,6 +70,39 @@
    (not (cella (x ?x) (y ?y)))
    =>
    (assert (cella (x ?x) (y ?y) (visitata TRUE) (da-x ?px) (da-y ?py))))
+
+(defrule PERCEZIONE::crea-cella-sopra
+   (declare (salience 25))
+   (percept (x ?x) (y ?y) (h ?h))
+   (test (< (- ?y 1) ?h))
+   (test (>= (- ?y 1) 0))
+   (not (cella (x ?x) (y =(- ?y 1))))
+   =>
+   (assert (cella (x ?x) (y (- ?y 1)))))
+
+(defrule PERCEZIONE::crea-cella-sotto
+   (declare (salience 25))
+   (percept (x ?x) (y ?y) (h ?h))
+   (test (< (+ ?y 1) ?h))
+   (not (cella (x ?x) (y =(+ ?y 1))))
+   =>
+   (assert (cella (x ?x) (y (+ ?y 1)))))
+
+(defrule PERCEZIONE::crea-cella-destra
+   (declare (salience 25))
+   (percept (x ?x) (y ?y) (w ?w))
+   (test (< (+ ?x 1) ?w))
+   (not (cella (x =(+ ?x 1)) (y ?y)))
+   =>
+   (assert (cella (x (+ ?x 1)) (y ?y))))
+
+(defrule PERCEZIONE::crea-cella-sinistra
+   (declare (salience 25))
+   (percept (x ?x) (y ?y))
+   (test (>= (- ?x 1) 0))
+   (not (cella (x =(- ?x 1)) (y ?y)))
+   =>
+   (assert (cella (x (- ?x 1)) (y ?y))))
 
 ;; Rileva muro (agente sbatte contro muro e non si muove)
 (defrule PERCEZIONE::rileva-muro
@@ -147,7 +180,7 @@
    => (assert (action (move up))) (printout t "-> Esploro in alto [" ?x "," (- ?y 1) "]" crlf))
 
 (defrule DECISIONE::vai-giu
-   (declare (salience 50)) (not (action)) (stato-agente (fase esplorazione)) (percept (x ?x) (y ?y))
+   (declare (salience 60)) (not (action)) (stato-agente (fase esplorazione)) (percept (x ?x) (y ?y))
    (cella (x ?x) (y =(+ ?y 1)) (visitata FALSE))
    (not (muro (x ?x) (y =(+ ?y 1))))
    => (assert (action (move down))) (printout t "-> Esploro in basso [" ?x "," (+ ?y 1) "]" crlf))

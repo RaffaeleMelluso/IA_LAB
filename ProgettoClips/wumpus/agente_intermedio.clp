@@ -4,7 +4,7 @@
 ;; =========================================================
 (defmodule MAIN (export ?ALL))
 
-(deftemplate percept (slot x) (slot y) (slot steps) (slot breeze) (slot stench) (slot glitter) (slot energy))
+(deftemplate percept (slot x) (slot y) (slot w) (slot h) (slot steps) (slot breeze) (slot stench) (slot glitter) (slot energy))
 (deftemplate action (slot move))
 (deftemplate counter (slot step))
 
@@ -150,6 +150,39 @@
    =>
    (assert (cella (x ?x) (y ?y))))
 
+(defrule RAGIONAMENTO::crea-cella-sopra
+   (declare (salience 25))
+   (percept (x ?x) (y ?y) (h ?h))
+   (test (< (- ?y 1) ?h))
+   (test (>= (- ?y 1) 0))
+   (not (cella (x ?x) (y =(- ?y 1))))
+   =>
+   (assert (cella (x ?x) (y (- ?y 1)))))
+
+(defrule RAGIONAMENTO::crea-cella-sotto
+   (declare (salience 25))
+   (percept (x ?x) (y ?y) (h ?h))
+   (test (< (+ ?y 1) ?h))
+   (not (cella (x ?x) (y =(+ ?y 1))))
+   =>
+   (assert (cella (x ?x) (y (+ ?y 1)))))
+
+(defrule RAGIONAMENTO::crea-cella-destra
+   (declare (salience 25))
+   (percept (x ?x) (y ?y) (w ?w))
+   (test (< (+ ?x 1) ?w))
+   (not (cella (x =(+ ?x 1)) (y ?y)))
+   =>
+   (assert (cella (x (+ ?x 1)) (y ?y))))
+
+(defrule RAGIONAMENTO::crea-cella-sinistra
+   (declare (salience 25))
+   (percept (x ?x) (y ?y))
+   (test (>= (- ?x 1) 0))
+   (not (cella (x =(- ?x 1)) (y ?y)))
+   =>
+   (assert (cella (x (- ?x 1)) (y ?y))))
+
 (defrule RAGIONAMENTO::segnala-target-sicuro
    (cella (x ?x) (y ?y) (visitata FALSE) (cf-pit ?cp&:(<= ?cp 0.0)) (cf-wumpus ?cw&:(<= ?cw 0.0)))
    (not (muro (x ?x) (y ?y)))
@@ -252,7 +285,7 @@
    (printout t "-> CF semplice: vado in ALTO." crlf))
 
 (defrule DECISIONE::vai-sicuro-giu
-   (declare (salience 50))
+   (declare (salience 60))
    (not (action))
    (percept (x ?x) (y ?y))
    (target-sicuro (x ?x) (y =(+ ?y 1)))

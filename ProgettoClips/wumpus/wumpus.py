@@ -246,9 +246,33 @@ def clips_bool(v: bool) -> str:
 
 
 class ClipsAgent:
-    def __init__(self, program: str):
+    def __init__(self, program: str, world: "WumpusWorld" | None = None):
+        self.world = world
         self.env = clips.Environment()
-        self.env.load(program)
+        from pathlib import Path
+
+        program_path = Path(program)
+        if not program_path.is_absolute():
+            program_path = Path(__file__).resolve().parent / program_path
+
+        if not program_path.exists():
+            fallback_names = [program_path.name]
+            if program_path.name.startswith("agent_"):
+                fallback_names.append("agente_" + program_path.name[len("agent_"):])
+            elif program_path.name.startswith("agente_"):
+                fallback_names.append("agent_" + program_path.name[len("agente_"):])
+
+            for candidate_name in fallback_names:
+                candidate_path = program_path.with_name(candidate_name)
+                if candidate_path.exists():
+                    program_path = candidate_path
+                    break
+
+        try:
+            self.env.load(str(program_path))
+        except clips.CLIPSError:
+            with program_path.open(encoding="utf-8") as source:
+                build_many(self.env, source.read())
         self.env.reset()
 
     def reset(self):
@@ -260,16 +284,20 @@ class ClipsAgent:
                 f.retract()
 
     def assert_percept(self, obs):
-        fact = (
-           f'(percept (x {obs["x"]}) (y {obs["y"]}) '
-#           f'(gx {obs.get("gx", 0)}) (gy {obs.get("gy", 0)}) '  # Add gold coords if available
-#           f'(w {obs["w"]}) (h {obs["h"]}) (steps {obs["steps"]}) '
-           f'(steps {obs["steps"]}) '
-           f'(breeze {clips_bool(obs["breeze"])}) '
-           f'(stench {clips_bool(obs["stench"])}) '
-           f'(glitter {clips_bool(obs["glitter"])}) ' 
-           f'(energy {obs["energy"]}))'
-        )
+        percept_template = self.env.find_template("percept")
+        slot_names = {slot.name for slot in percept_template.slots}
+
+        parts = [f'(percept (x {obs["x"]}) (y {obs["y"]})']
+        if self.world is not None and "w" in slot_names and "h" in slot_names:
+            parts.append(f'(w {self.world.width}) (h {self.world.height})')
+        parts.extend([
+            f'(steps {obs["steps"]})',
+            f'(breeze {clips_bool(obs["breeze"])})',
+            f'(stench {clips_bool(obs["stench"])})',
+            f'(glitter {clips_bool(obs["glitter"])})',
+            f'(energy {obs["energy"]}))',
+        ])
+        fact = " ".join(parts)
         self.env.assert_string(fact)
         
     def update_time_counter(self, obs):
@@ -294,6 +322,7 @@ class WumpusWorldGUI:
     def __init__(self, world: WumpusWorld, agent: ClipsAgent):
         self.world = world
         self.agent = agent
+        self.agent.world = self.world
 
         self.root = tk.Tk()
         self.root.title("Wumpus World with Walls")
@@ -493,7 +522,7 @@ def main():
         sys.exit(1)
 
     try:
-        agent = ClipsAgent(args.agent_file)
+        agent = ClipsAgent(args.agent_file, world)
     except Exception as e:
         print(f"Error loading CLIPS agent: {e}", file=sys.stderr)
         sys.exit(1)
