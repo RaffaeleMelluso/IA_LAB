@@ -1,4 +1,13 @@
 ;; =========================================================
+;; AGENTE COMPLETO
+;; Questo agente mette insieme percezione ragionamento e scelta dell azione usando una memoria interna del percorso
+;; Quando entra in una cella legge i segnali ricevuti e aggiorna le credenze sui pericoli possibili nelle celle vicine
+;; Tiene traccia di dove è passato con la cella di provenienza il comando usato e i target sicuri già individuati
+;; Usa più livelli di cautela per evitare i muri ridurre i tentativi inutili e non fidarsi troppo presto di una sola ipotesi
+;; Il gps non è un sistema esterno ma una parte del ragionamento che serve a guidare il movimento verso obiettivi già considerati sicuri
+;; Funziona confrontando la posizione attuale con i target memorizzati e scegliendo la direzione che avvicina alla meta senza tornare subito indietro
+;; In pratica prova prima a seguire una strada già ritenuta affidabile poi se serve usa il percorso memorizzato per rientrare con il backtracking
+;; =========================================================
 ;; MODULO MAIN: Strutture e Memoria
 ;; =========================================================
 (defmodule MAIN (export ?ALL))
@@ -40,7 +49,7 @@
    (memoria-azione (comando none) (da-x 0) (da-y 0))
 )
 
-;; Risolve il bug dei "Percept Fantasma"
+;; Elimina i percept meno recenti e conserva solo quello piu aggiornato
 (defrule MAIN::pulisci-percept-vecchi
    (declare (salience 10000))
    ?p1 <- (percept (steps ?s1))
@@ -48,6 +57,7 @@
    =>
    (retract ?p2))
 
+;; Quando arriva un percept avvia il ciclo di percezione ragionamento e decisione
 (defrule MAIN::deliberate
    (declare (salience -10))
    (percept)
@@ -59,12 +69,15 @@
 ;; =========================================================
 (defmodule PERCEZIONE (import MAIN ?ALL))
 
+;; Elimina eventuali azioni vecchie prima di calcolare la nuova mossa
 (defrule PERCEZIONE::pulisci-azione
    (declare (salience 2000)) ?a <- (action) => (retract ?a))
 
+;; Elimina la registrazione di intenzione della iterazione precedente
 (defrule PERCEZIONE::pulisci-registrazione
    (declare (salience 2000)) ?r <- (intenzione-registrata) => (retract ?r))
 
+;; Aggiorna una cella gia nota quando l agente vi arriva e salva da dove proviene
 (defrule PERCEZIONE::aggiorna-mappa
    (percept (x ?x) (y ?y))
    (memoria-azione (da-x ?px) (da-y ?py))
@@ -72,6 +85,7 @@
    =>
    (modify ?c (visitata TRUE) (da-x ?px) (da-y ?py)))
 
+;; Crea una nuova cella visitata quando il percorso la incontra per la prima volta
 (defrule PERCEZIONE::crea-cella-mappa
    (percept (x ?x) (y ?y))
    (memoria-azione (da-x ?px) (da-y ?py))
@@ -79,6 +93,7 @@
    =>
    (assert (cella (x ?x) (y ?y) (visitata TRUE) (da-x ?px) (da-y ?py) (cf-pit -1.0) (cf-wumpus -1.0) (esaurita FALSE))))
 
+;; Se la mossa non cambia posizione il passo precedente ha incontrato un muro
 (defrule PERCEZIONE::rileva-muro
    (declare (salience 100))
    (percept (x ?x) (y ?y))
@@ -96,10 +111,11 @@
    (printout t "   !! SBANG! Muro fisico rilevato in [" ?mx "," ?my "]" crlf))
 
 ;; =========================================================
-;; MODULO RAGIONAMENTO: L'Intelligenza Matematica
+;; MODULO RAGIONAMENTO: L Intelligenza Matematica
 ;; =========================================================
 (defmodule RAGIONAMENTO (import MAIN ?ALL))
 
+;; Legge brezza e puzza della cella corrente e aggiorna le ipotesi sui vicini
 (defrule RAGIONAMENTO::analizza-pericoli
    (percept (x ?x) (y ?y) (breeze ?b) (stench ?s))
    (not (valutata-cella (x ?x) (y ?y)))
@@ -125,12 +141,14 @@
    (assert (richiesta-cf-wumpus (x ?x) (y (+ ?y 1)) (val ?val-w)))
    (assert (richiesta-cf-wumpus (x ?x) (y (- ?y 1)) (val ?val-w))))
 
+;; Se serve una cella per memorizzare il coefficiente la crea prima di applicare gli aggiornamenti
 (defrule RAGIONAMENTO::crea-cella-per-cf
    (declare (salience 50))
    (or (richiesta-cf-pit (x ?x) (y ?y)) (richiesta-cf-wumpus (x ?x) (y ?y)))
    (not (cella (x ?x) (y ?y)))
    => (assert (cella (x ?x) (y ?y))))
 
+;; Aggiorna il coefficiente di rischio per i pozzi usando le richieste generate dai segnali
 (defrule RAGIONAMENTO::applica-cf-pit
    (declare (salience 10))
    ?r <- (richiesta-cf-pit (x ?x) (y ?y) (val ?n))
@@ -140,6 +158,7 @@
    (if (= ?n -1.0) then (modify ?c (cf-pit -1.0))
     else (if (>= ?v 0.0) then (modify ?c (cf-pit (- (+ ?v ?n) (* ?v ?n)))))))
 
+;; Aggiorna il coefficiente di rischio per il wumpus usando le richieste generate dai segnali
 (defrule RAGIONAMENTO::applica-cf-wumpus
    (declare (salience 10))
    ?r <- (richiesta-cf-wumpus (x ?x) (y ?y) (val ?n))
@@ -149,7 +168,7 @@
    (if (= ?n -1.0) then (modify ?c (cf-wumpus -1.0))
     else (if (>= ?v 0.0) then (modify ?c (cf-wumpus (- (+ ?v ?n) (* ?v ?n)))))))
 
-;; --- DEDUZIONE ---
+;; Deduce che una cella vicina e sicura quando un vicino certo esclude un rischio e ne sposta uno plausibile
 (defrule RAGIONAMENTO::eliminazione-pozzo
    (declare (salience 8))
    (brezza-rilevata (x ?bx) (y ?by)) 
@@ -165,6 +184,7 @@
    (assert (richiesta-cf-pit (x ?ix) (y ?iy) (val 0.3)))
    (printout t "   [?] DEDUZIONE: [" ?sx "," ?sy "] e' sicura. Aumento il rischio di [" ?ix "," ?iy "]" crlf))
 
+;; Deduce che una cella vicina e sicura quando il wumpus certo esclude un rischio e ne sposta uno plausibile
 (defrule RAGIONAMENTO::eliminazione-wumpus
    (declare (salience 8))
    (puzza-rilevata (x ?wx) (y ?wy)) 
@@ -180,7 +200,7 @@
    (printout t "   [?] DEDUZIONE: [" ?sx "," ?sy "] e' sicura. Aumento il rischio di [" ?ix "," ?iy "]" crlf))
 
 
-;; --- ASSOLUZIONE LOGICA (Soglia di sicurezza al 90%) ---
+;; Quando un rischio supera la soglia di sicurezza azzera le ipotesi deboli sui vicini
 (defrule RAGIONAMENTO::assoluzione-pozzo
    (declare (salience 5))
    (cella (x ?px) (y ?py) (cf-pit ?cf-p&:(> ?cf-p 0.9))) ; <--- ALZATO A 0.9! Niente più falsi positivi
@@ -192,6 +212,7 @@
    (modify ?c-inn (cf-pit 0.0)) 
    (printout t "   [i] ASSOLUZIONE: Pozzo confermato in [" ?px "," ?py "]. Cella [" ?ix "," ?iy "] dichiarata innocente!" crlf))
 
+;; Quando un rischio sul wumpus supera la soglia di sicurezza azzera le ipotesi deboli sui vicini
 (defrule RAGIONAMENTO::assoluzione-wumpus
    (declare (salience 5))
    (cella (x ?px) (y ?py) (cf-wumpus ?cf-w&:(> ?cf-w 0.9))) ; <--- ALZATO A 0.9!
@@ -204,7 +225,7 @@
    (printout t "   [i] ASSOLUZIONE: Wumpus confermato in [" ?px "," ?py "]. Cella [" ?ix "," ?iy "] dichiarata innocente!" crlf))
 
 
-;; --- GESTIONE TARGET PER IL GPS ---
+;; Segnala come target sicura ogni cella non visitata senza rischio e non muro
 (defrule RAGIONAMENTO::segnala-target-sicuro
    (cella (x ?x) (y ?y) (visitata FALSE) (cf-pit ?cp) (cf-wumpus ?cw))
    (test (<= ?cp 0.0)) (test (<= ?cw 0.0))
@@ -213,12 +234,14 @@
    =>
    (assert (target-sicuro (x ?x) (y ?y))))
 
+;; Rimuove un target quando la cella e stata raggiunta e quindi non serve piu
 (defrule RAGIONAMENTO::rimuovi-target-raggiunto
    ?t <- (target-sicuro (x ?x) (y ?y))
    (cella (x ?x) (y ?y) (visitata TRUE))
    =>
    (retract ?t))
 
+;; Elimina un target se viene scoperto che la cella e un muro
 (defrule RAGIONAMENTO::rimuovi-target-muro
    (declare (salience 100))
    ?t <- (target-sicuro (x ?x) (y ?y))
@@ -232,6 +255,7 @@
 ;; =========================================================
 (defmodule DECISIONE (import MAIN ?ALL))
 
+;; Memorizza la mossa scelta per poter ricostruire il percorso in caso di ritorno
 (defrule DECISIONE::registra-intenzione
    (declare (salience 1000))
    (percept (x ?x) (y ?y)) (action (move ?dir)) (not (intenzione-registrata))
@@ -240,19 +264,20 @@
    (modify ?mem (comando ?dir) (da-x ?x) (da-y ?y))
    (assert (intenzione-registrata)))
 
+;; Se c e oro e l agente non ha ancora preso il tesoro lo raccoglie e passa alla fuga
 (defrule DECISIONE::prendi-oro
    (declare (salience 150)) (not (action))
    (percept (glitter TRUE)) ?s <- (stato-agente (oro-preso FALSE))
    => (assert (action (move grab))) (modify ?s (oro-preso TRUE) (fase fuga)) (printout t ">>> ORO PRESO! Inizia la fuga!" crlf))
 
+;; Se l agente con oro si trova all origine esce vincitore
 (defrule DECISIONE::esci-vincitore
    (declare (salience 200)) (not (action))
    (percept (x 0) (y 0)) (stato-agente (oro-preso TRUE))
    => (assert (action (move quit))) (printout t ">>> VITTORIA! Uscito dalla tana!" crlf))
 
 
-;; --- FUGA VERSO L'USCITA (Priorità 140) ---
-;; Si attiva in automatico non appena la fase passa da 'esplorazione' a 'fuga'.
+;; Ritorna verso la cella precedente quando la fase diventa fuga
 (defrule DECISIONE::fuga-verso-casa
    (declare (salience 140)) (not (action))
    (stato-agente (fase fuga))
@@ -266,34 +291,35 @@
    (if (= ?py (+ ?y 1)) then (assert (action (move down)))  (printout t "<<< FUGA VITTORIOSA: Corro in BASSO verso [" ?px "," ?py "]" crlf))
 )
 
-;; --- ESPLORAZIONE SICURA AL 100% ---
+;; Sceglie la cella a destra solo se e sconosciuta ma senza rischio e senza muro
 (defrule DECISIONE::vai-destra
    (declare (salience 50)) (not (action)) (stato-agente (fase esplorazione)) (percept (x ?x) (y ?y))
    (cella (x =(+ ?x 1)) (y ?y) (visitata FALSE) (cf-pit ?cp) (cf-wumpus ?cw))
    (test (<= ?cp 0.0)) (test (<= ?cw 0.0)) (not (muro (x =(+ ?x 1)) (y ?y)))
    => (assert (action (move right))) (printout t "-> Sicuro: DESTRA verso [" (+ ?x 1) "," ?y "]" crlf))
 
+;; Sceglie la cella a sinistra solo se e sconosciuta ma senza rischio e senza muro
 (defrule DECISIONE::vai-sinistra
    (declare (salience 50)) (not (action)) (stato-agente (fase esplorazione)) (percept (x ?x) (y ?y))
    (cella (x =(- ?x 1)) (y ?y) (visitata FALSE) (cf-pit ?cp) (cf-wumpus ?cw))
    (test (<= ?cp 0.0)) (test (<= ?cw 0.0)) (not (muro (x =(- ?x 1)) (y ?y)))
    => (assert (action (move left))) (printout t "-> Sicuro: SINISTRA verso [" (- ?x 1) "," ?y "]" crlf))
 
+;; Sceglie la cella sopra solo se e sconosciuta ma senza rischio e senza muro
 (defrule DECISIONE::vai-su
    (declare (salience 50)) (not (action)) (stato-agente (fase esplorazione)) (percept (x ?x) (y ?y))
    (cella (x ?x) (y =(- ?y 1)) (visitata FALSE) (cf-pit ?cp) (cf-wumpus ?cw))
    (test (<= ?cp 0.0)) (test (<= ?cw 0.0)) (not (muro (x ?x) (y =(- ?y 1))))
    => (assert (action (move up))) (printout t "-> Sicuro: ALTO verso [" ?x "," (- ?y 1) "]" crlf))
 
+;; Sceglie la cella sotto solo se e sconosciuta ma senza rischio e senza muro
 (defrule DECISIONE::vai-giu
    (declare (salience 50)) (not (action)) (stato-agente (fase esplorazione)) (percept (x ?x) (y ?y))
    (cella (x ?x) (y =(+ ?y 1)) (visitata FALSE) (cf-pit ?cp) (cf-wumpus ?cw))
    (test (<= ?cp 0.0)) (test (<= ?cw 0.0)) (not (muro (x ?x) (y =(+ ?y 1))))
    => (assert (action (move down))) (printout t "-> Sicuro: BASSO verso [" ?x "," (+ ?y 1) "]" crlf))
 
-;; --- NAVIGATORE GPS ANTI-PING-PONG FLUIDO (Priorità 45) ---
-;; Usando <= invece di <, permettiamo all'agente di fare "passi laterali"
-;; per aggirare i muri senza bloccarsi nei minimi locali!
+;; Il gps prova a muoversi verso un target sicuro gia noto senza tornare subito indietro
 (defrule DECISIONE::navigatore-destra
    (declare (salience 45)) (not (action)) (percept (x ?x) (y ?y))
    (target-sicuro (x ?tx) (y ?ty))
@@ -303,6 +329,7 @@
    (test (or (neq ?mx (+ ?x 1)) (neq ?my ?y))) 
    => (assert (action (move right))) (printout t ">>> GPS: Navigo verso DESTRA per raggiungere [" ?tx "," ?ty "]" crlf))
 
+;; Il gps prova a muoversi a sinistra verso un target sicuro gia noto senza tornare subito indietro
 (defrule DECISIONE::navigatore-sinistra
    (declare (salience 45)) (not (action)) (percept (x ?x) (y ?y))
    (target-sicuro (x ?tx) (y ?ty))
@@ -312,6 +339,7 @@
    (test (or (neq ?mx (- ?x 1)) (neq ?my ?y))) 
    => (assert (action (move left))) (printout t ">>> GPS: Navigo verso SINISTRA per raggiungere [" ?tx "," ?ty "]" crlf))
 
+;; Il gps prova a muoversi in alto verso un target sicuro gia noto senza tornare subito indietro
 (defrule DECISIONE::navigatore-su
    (declare (salience 45)) (not (action)) (percept (x ?x) (y ?y))
    (target-sicuro (x ?tx) (y ?ty))
@@ -321,6 +349,7 @@
    (test (or (neq ?mx ?x) (neq ?my (- ?y 1)))) 
    => (assert (action (move up))) (printout t ">>> GPS: Navigo in ALTO per raggiungere [" ?tx "," ?ty "]" crlf))
 
+;; Il gps prova a muoversi in basso verso un target sicuro gia noto senza tornare subito indietro
 (defrule DECISIONE::navigatore-giu
    (declare (salience 45)) (not (action)) (percept (x ?x) (y ?y))
    (target-sicuro (x ?tx) (y ?ty))
@@ -330,7 +359,7 @@
    (test (or (neq ?mx ?x) (neq ?my (+ ?y 1)))) 
    => (assert (action (move down))) (printout t ">>> GPS: Navigo in BASSO per raggiungere [" ?tx "," ?ty "]" crlf))
 
-;; --- RITIRATA STRATEGICA E BACKTRACKING (Priorità 25) ---
+;; Se non esiste una scelta migliore torna sulla cella precedente salvata in memoria
 (defrule DECISIONE::ritirata-o-fuga
    (declare (salience 25)) (not (action))
    (percept (x ?x) (y ?y))
@@ -346,72 +375,79 @@
 ;; GESTIONE DEL RISCHIO A STRATI RICALIBRATA
 ;; =========================================================
 
-;; --- LIVELLO 1: Scommessa Calcolata (Priorità 28) ---
-;; Resta SOPRA la Ritirata: se il rischio è basso (60%), non perdere tempo a fuggire.
+;; Primo livello di rischio calcolato per mosse ancora abbastanza sicure
 (defrule DECISIONE::scommessa-calcolata-destra
    (declare (salience 28)) (not (action)) (stato-agente (fase esplorazione)) (percept (x ?x) (y ?y)) (not (target-sicuro)) 
    (cella (x =(+ ?x 1)) (y ?y) (visitata FALSE) (cf-pit ?cp&:(<= ?cp 0.65)) (cf-wumpus ?cw&:(<= ?cw 0.65))) (not (muro (x =(+ ?x 1)) (y ?y)))
    => (assert (action (move right))) (printout t "!!! SCOMMESSA CALCOLATA A DESTRA (Rischio P:" ?cp ", W:" ?cw ")" crlf))
 
+;; Primo livello di rischio calcolato verso sinistra
 (defrule DECISIONE::scommessa-calcolata-sinistra
    (declare (salience 28)) (not (action)) (stato-agente (fase esplorazione)) (percept (x ?x) (y ?y)) (not (target-sicuro)) 
    (cella (x =(- ?x 1)) (y ?y) (visitata FALSE) (cf-pit ?cp&:(<= ?cp 0.65)) (cf-wumpus ?cw&:(<= ?cw 0.65))) (not (muro (x =(- ?x 1)) (y ?y)))
    => (assert (action (move left))) (printout t "!!! SCOMMESSA CALCOLATA A SINISTRA (Rischio P:" ?cp ", W:" ?cw ")" crlf))
 
+;; Primo livello di rischio calcolato verso l alto
 (defrule DECISIONE::scommessa-calcolata-su
    (declare (salience 28)) (not (action)) (stato-agente (fase esplorazione)) (percept (x ?x) (y ?y)) (not (target-sicuro)) 
    (cella (x ?x) (y =(- ?y 1)) (visitata FALSE) (cf-pit ?cp&:(<= ?cp 0.65)) (cf-wumpus ?cw&:(<= ?cw 0.65))) (not (muro (x ?x) (y =(- ?y 1))))
    => (assert (action (move up))) (printout t "!!! SCOMMESSA CALCOLATA IN ALTO (Rischio P:" ?cp ", W:" ?cw ")" crlf))
 
+;; Primo livello di rischio calcolato verso il basso
 (defrule DECISIONE::scommessa-calcolata-giu
    (declare (salience 28)) (not (action)) (stato-agente (fase esplorazione)) (percept (x ?x) (y ?y)) (not (target-sicuro)) 
    (cella (x ?x) (y =(+ ?y 1)) (visitata FALSE) (cf-pit ?cp&:(<= ?cp 0.65)) (cf-wumpus ?cw&:(<= ?cw 0.65))) (not (muro (x ?x) (y =(+ ?y 1))))
    => (assert (action (move down))) (printout t "!!! SCOMMESSA CALCOLATA IN BASSO (Rischio P:" ?cp ", W:" ?cw ")" crlf))
 
-;; --- LIVELLO 2: Scommessa Azzardata (Priorità 23) ---
-;; SCENDE SOTTO LA RITIRATA! Se il rischio è 85%, scappa e cerca un 60% altrove!
+;; Secondo livello di rischio per scelte piu azzardate ma ancora non estreme
 (defrule DECISIONE::scommessa-azzardata-destra
    (declare (salience 23)) (not (action)) (stato-agente (fase esplorazione)) (percept (x ?x) (y ?y)) (not (target-sicuro)) 
    (cella (x =(+ ?x 1)) (y ?y) (visitata FALSE) (cf-pit ?cp&:(<= ?cp 0.85)) (cf-wumpus ?cw&:(<= ?cw 0.85))) (not (muro (x =(+ ?x 1)) (y ?y)))
    => (assert (action (move right))) (printout t "!!! SCOMMESSA AZZARDATA A DESTRA (Rischio P:" ?cp ", W:" ?cw ")" crlf))
 
+;; Secondo livello di rischio verso sinistra
 (defrule DECISIONE::scommessa-azzardata-sinistra
    (declare (salience 23)) (not (action)) (stato-agente (fase esplorazione)) (percept (x ?x) (y ?y)) (not (target-sicuro)) 
    (cella (x =(- ?x 1)) (y ?y) (visitata FALSE) (cf-pit ?cp&:(<= ?cp 0.85)) (cf-wumpus ?cw&:(<= ?cw 0.85))) (not (muro (x =(- ?x 1)) (y ?y)))
    => (assert (action (move left))) (printout t "!!! SCOMMESSA AZZARDATA A SINISTRA (Rischio P:" ?cp ", W:" ?cw ")" crlf))
 
+;; Secondo livello di rischio verso l alto
 (defrule DECISIONE::scommessa-azzardata-su
    (declare (salience 23)) (not (action)) (stato-agente (fase esplorazione)) (percept (x ?x) (y ?y)) (not (target-sicuro)) 
    (cella (x ?x) (y =(- ?y 1)) (visitata FALSE) (cf-pit ?cp&:(<= ?cp 0.85)) (cf-wumpus ?cw&:(<= ?cw 0.85))) (not (muro (x ?x) (y =(- ?y 1))))
    => (assert (action (move up))) (printout t "!!! SCOMMESSA AZZARDATA IN ALTO (Rischio P:" ?cp ", W:" ?cw ")" crlf))
 
+;; Secondo livello di rischio verso il basso
 (defrule DECISIONE::scommessa-azzardata-giu
    (declare (salience 23)) (not (action)) (stato-agente (fase esplorazione)) (percept (x ?x) (y ?y)) (not (target-sicuro)) 
    (cella (x ?x) (y =(+ ?y 1)) (visitata FALSE) (cf-pit ?cp&:(<= ?cp 0.85)) (cf-wumpus ?cw&:(<= ?cw 0.85))) (not (muro (x ?x) (y =(+ ?y 1))))
    => (assert (action (move down))) (printout t "!!! SCOMMESSA AZZARDATA IN BASSO (Rischio P:" ?cp ", W:" ?cw ")" crlf))
 
-;; --- LIVELLO 3: Scommessa Estrema (Priorità 20) ---
+;; Terzo livello di rischio per tentare una cella quasi completamente non risolta
 (defrule DECISIONE::scommessa-estrema-destra
    (declare (salience 20)) (not (action)) (stato-agente (fase esplorazione)) (percept (x ?x) (y ?y)) (not (target-sicuro)) 
    (cella (x =(+ ?x 1)) (y ?y) (visitata FALSE) (cf-pit ?cp&:(< ?cp 1.0)) (cf-wumpus ?cw&:(< ?cw 1.0))) (not (muro (x =(+ ?x 1)) (y ?y)))
    => (assert (action (move right))) (printout t "!!! SCOMMESSA ESTREMA A DESTRA (Rischio P:" ?cp ", W:" ?cw ")" crlf))
 
+;; Terzo livello di rischio verso sinistra
 (defrule DECISIONE::scommessa-estrema-sinistra
    (declare (salience 20)) (not (action)) (stato-agente (fase esplorazione)) (percept (x ?x) (y ?y)) (not (target-sicuro)) 
    (cella (x =(- ?x 1)) (y ?y) (visitata FALSE) (cf-pit ?cp&:(< ?cp 1.0)) (cf-wumpus ?cw&:(< ?cw 1.0))) (not (muro (x =(- ?x 1)) (y ?y)))
    => (assert (action (move left))) (printout t "!!! SCOMMESSA ESTREMA A SINISTRA (Rischio P:" ?cp ", W:" ?cw ")" crlf))
 
+;; Terzo livello di rischio verso l alto
 (defrule DECISIONE::scommessa-estrema-su
    (declare (salience 20)) (not (action)) (stato-agente (fase esplorazione)) (percept (x ?x) (y ?y)) (not (target-sicuro)) 
    (cella (x ?x) (y =(- ?y 1)) (visitata FALSE) (cf-pit ?cp&:(< ?cp 1.0)) (cf-wumpus ?cw&:(< ?cw 1.0))) (not (muro (x ?x) (y =(- ?y 1))))
    => (assert (action (move up))) (printout t "!!! SCOMMESSA ESTREMA IN ALTO (Rischio P:" ?cp ", W:" ?cw ")" crlf))
 
+;; Terzo livello di rischio verso il basso
 (defrule DECISIONE::scommessa-estrema-giu
    (declare (salience 20)) (not (action)) (stato-agente (fase esplorazione)) (percept (x ?x) (y ?y)) (not (target-sicuro)) 
    (cella (x ?x) (y =(+ ?y 1)) (visitata FALSE) (cf-pit ?cp&:(< ?cp 1.0)) (cf-wumpus ?cw&:(< ?cw 1.0))) (not (muro (x ?x) (y =(+ ?y 1))))
    => (assert (action (move down))) (printout t "!!! SCOMMESSA ESTREMA IN BASSO (Rischio P:" ?cp ", W:" ?cw ")" crlf))
 
-;; --- RINUNCIA (Priorità 10) ---
+;; Se nessuna strategia e possibile e l agente si trova all origine rinuncia alla partita
 (defrule DECISIONE::rinuncia
    (declare (salience 10)) (not (action)) (percept (x 0) (y 0)) (stato-agente (fase esplorazione))
    => (assert (action (move quit))) (printout t "!!! TUTTE LE VIE SONO MORTE CERTA (100%). Rinuncio." crlf))
