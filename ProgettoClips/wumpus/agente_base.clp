@@ -1,6 +1,14 @@
 ;; =========================================================
 ;; AGENTE BASE
+;; Prima di ragionare elimina le percezioni vecchie e lascia solo quella attuale cosi evita di prendere decisioni su dati superati
 ;; Questo agente usa un ragionamento semplice e diretto basato sulla sicurezza immediata delle celle vicine
+;; La decisione parte dalla cella corrente e controlla se le celle adiacenti sono visitate libere da muri e prive di rischio noto
+;; Il muro viene riconosciuto quando il comando scelto non produce avanzamento e la posizione percepita resta identica a quella di partenza
+;; Il processo di ragionamento avanza solo quando trova una cella non visitata senza rischio noto altrimenti si ferma o torna indietro usando la memoria del percorso
+;; Sono utili anche le parti che trasformano le celle non visitate in target sicuri e quelle che rimuovono i target quando vengono raggiunti o diventano muri
+;; Anche qui l ordine delle regole e importante perche prima si pulisce lo stato interno poi si aggiorna la mappa e solo dopo si sceglie se andare avanti o tornare indietro
+;; Il target sicuro serve a ricordare le celle che meritano di essere visitate mentre la memoria del percorso serve a ritrovare la strada se non ci sono mosse migliori
+;; Le soglie qui sono piu semplici ma servono comunque a separare una cella davvero affidabile da una che non conviene ancora attraversare
 ;; Si ricorda dove è passato prima e conserva i target sicuri che possono aiutare a tornare indietro o continuare l esplorazione
 ;; Le informazioni memorizzate restano poche ma utili cella visitata muro scoperto e punto da cui è arrivato
 ;; Le precauzioni servono a non entrare nei muri a non scegliere mosse senza senso e a fermarsi quando non c è una strada ragionevole
@@ -31,7 +39,7 @@
    (memoria-azione (comando none) (da-x 0) (da-y 0))
 )
 
-;; Elimina i percept meno recenti e conserva solo quello piu nuovo
+;; Elimina le percezioni meno recenti in base al campo steps e mantiene solo la piu aggiornata prima di ragionare
 (defrule MAIN::pulisci-percept-vecchi
    (declare (salience 10000))
    ?p1 <- (percept (steps ?s1))

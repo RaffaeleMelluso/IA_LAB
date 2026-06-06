@@ -1,12 +1,20 @@
 ;; =========================================================
 ;; AGENTE COMPLETO
+;; Prima di ogni ciclo elimina le percezioni vecchie e conserva solo quella piu recente per evitare letture duplicate
 ;; Questo agente mette insieme percezione ragionamento e scelta dell azione usando una memoria interna del percorso
-;; Quando entra in una cella legge i segnali ricevuti e aggiorna le credenze sui pericoli possibili nelle celle vicine
+;; La logica parte dai segnali percepiti nella cella corrente come brezza puzza glitter e posizione attuale
+;; Da questi dati aggiorna le credenze sui pericoli possibili nelle celle vicine sui target sicuri e sui muri scoperti
+;; Capisce che c e un muro quando prova a muoversi ma la nuova posizione percepita resta uguale a quella di partenza
+;; Il processo di ragionamento decide se andare avanti o ritirarsi guardando segnali presenti target sicuri muri noti e livello di rischio delle celle adiacenti
+;; Sono importanti anche le regole che rimuovono target non piu validi e quelle che dividono la scelta in livelli di rischio crescente prima di arrivare al backtracking
+;; L ordine delle regole conta molto perche prima vengono pulite le percezioni e lo stato interno poi si aggiorna la mappa infine si decide la mossa con priorita diverse
+;; Le soglie di rischio separano le mosse prudenti da quelle piu azzardate e dalla ritirata cosi l agente non tratta allo stesso modo un dubbio lieve e un pericolo forte
+;; I target sicuri vengono creati rimossi o annullati quando cambiano le informazioni cosi il gps lavora sempre su obiettivi coerenti con la memoria attuale
 ;; Tiene traccia di dove è passato con la cella di provenienza il comando usato e i target sicuri già individuati
 ;; Usa più livelli di cautela per evitare i muri ridurre i tentativi inutili e non fidarsi troppo presto di una sola ipotesi
-;; Il gps non è un sistema esterno ma una parte del ragionamento che serve a guidare il movimento verso obiettivi già considerati sicuri
-;; Funziona confrontando la posizione attuale con i target memorizzati e scegliendo la direzione che avvicina alla meta senza tornare subito indietro
-;; In pratica prova prima a seguire una strada già ritenuta affidabile poi se serve usa il percorso memorizzato per rientrare con il backtracking
+;; Il gps non è un sistema esterno ma una parte del ragionamento che decide in base ai target sicuri già memorizzati e alla posizione attuale
+;; Prima confronta la cella corrente con i target disponibili poi verifica quale direzione riduce la distanza dalla meta senza tornare subito indietro
+;; Se non trova un obiettivo affidabile usa il percorso memorizzato come riferimento e applica il backtracking
 ;; =========================================================
 ;; MODULO MAIN: Strutture e Memoria
 ;; =========================================================
@@ -49,7 +57,7 @@
    (memoria-azione (comando none) (da-x 0) (da-y 0))
 )
 
-;; Elimina i percept meno recenti e conserva solo quello piu aggiornato
+;; Elimina le percezioni meno recenti in base al campo steps e conserva solo l ultima utile per non ragionare su dati vecchi
 (defrule MAIN::pulisci-percept-vecchi
    (declare (salience 10000))
    ?p1 <- (percept (steps ?s1))

@@ -1,8 +1,16 @@
 
 ;; =========================================================
 ;; AGENTE INTERMEDIO
+;; All inizio pulisce le percezioni vecchie e mantiene solo l ultima cosi il ragionamento lavora su dati aggiornati
 ;; Questo agente usa un ragionamento a rischio graduale invece di una semplice scelta sicuro o pericoloso
+;; La logica parte dai segnali percepiti nella cella corrente e valuta in base a brezza puzza posizione e celle già note
+;; Il muro viene capito osservando il tentativo di movimento: se la mossa prevista non cambia posizione allora la cella davanti è un ostacolo
+;; Il processo di ragionamento va avanti quando il rischio delle celle vicine resta entro le soglie stabilite e si ritira quando le ipotesi diventano troppo incerte o un target sicuro non è più disponibile
 ;; Ogni segnale percepito aggiorna delle credenze numeriche che rappresentano quanto una cella possa essere rischiosa
+;; Sono particolarmente interessanti le regole che aggiornano i coefficienti di rischio quelle che deducono per esclusione le celle sicure e quelle che azzerano ipotesi deboli quando una cella diventa troppo probabile
+;; L ordine delle regole fa lavorare prima la pulizia delle percezioni poi l aggiornamento delle credenze poi la scelta tra avanzare ritirarsi o seguire il gps
+;; I target sicuri vengono continuamente creati controllati e rimossi in base alle nuove informazioni cosi la navigazione usa sempre una lista aggiornata di obiettivi
+;; Le soglie di rischio servono a distinguere tra certezza prudenza azzardo e ritiro e rendono il comportamento piu leggibile e controllato
 ;; Nella memoria tiene il percorso già fatto i muri scoperti i target sicuri e i coefficienti di rischio associati alle ipotesi
 ;; Le precauzioni servono a non fidarsi di un solo segnale a ridurre i falsi positivi e a evitare inversioni immediate che fanno perdere tempo
 ;; Prima prova a raggiungere un target sicuro poi valuta mosse prudenti e se non ha alternative torna indietro seguendo la memoria del percorso
@@ -41,7 +49,7 @@
    (memoria-azione (comando none) (da-x 0) (da-y 0))
 )
 
-;; Elimina i percept meno recenti e conserva solo quello piu nuovo
+;; Elimina le percezioni meno recenti in base al campo steps e conserva solo quella aggiornata per evitare dati superati
 (defrule MAIN::pulisci-percept-vecchi
    (declare (salience 10000))
    ?p1 <- (percept (steps ?s1))
