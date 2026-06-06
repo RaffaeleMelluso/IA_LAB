@@ -149,7 +149,7 @@
    (if (= ?n -1.0) then (modify ?c (cf-wumpus -1.0))
     else (if (>= ?v 0.0) then (modify ?c (cf-wumpus (- (+ ?v ?n) (* ?v ?n)))))))
 
-;; --- DEDUZIONE SHERLOCK HOLMES (Eliminazione) FIXATA ---
+;; --- DEDUZIONE ---
 (defrule RAGIONAMENTO::eliminazione-pozzo
    (declare (salience 8))
    (brezza-rilevata (x ?bx) (y ?by)) 
@@ -163,7 +163,7 @@
    =>
    (assert (rischio-spostato (bx ?bx) (by ?by) (sx ?sx) (sy ?sy) (ix ?ix) (iy ?iy)))
    (assert (richiesta-cf-pit (x ?ix) (y ?iy) (val 0.3)))
-   (printout t "   [?] DEDUZIONE (Sherlock): [" ?sx "," ?sy "] e' sicura. Aumento il rischio di [" ?ix "," ?iy "]" crlf))
+   (printout t "   [?] DEDUZIONE: [" ?sx "," ?sy "] e' sicura. Aumento il rischio di [" ?ix "," ?iy "]" crlf))
 
 (defrule RAGIONAMENTO::eliminazione-wumpus
    (declare (salience 8))
@@ -177,10 +177,10 @@
    =>
    (assert (rischio-spostato (bx ?wx) (by ?wy) (sx ?sx) (sy ?sy) (ix ?ix) (iy ?iy)))
    (assert (richiesta-cf-wumpus (x ?ix) (y ?iy) (val 0.3)))
-   (printout t "   [?] DEDUZIONE (Sherlock): [" ?sx "," ?sy "] e' sicura. Aumento il rischio di [" ?ix "," ?iy "]" crlf))
+   (printout t "   [?] DEDUZIONE: [" ?sx "," ?sy "] e' sicura. Aumento il rischio di [" ?ix "," ?iy "]" crlf))
 
 
-;; --- ASSOLUZIONE LOGICA FIXATA (Soglia di sicurezza al 90%) ---
+;; --- ASSOLUZIONE LOGICA (Soglia di sicurezza al 90%) ---
 (defrule RAGIONAMENTO::assoluzione-pozzo
    (declare (salience 5))
    (cella (x ?px) (y ?py) (cf-pit ?cf-p&:(> ?cf-p 0.9))) ; <--- ALZATO A 0.9! Niente più falsi positivi
