@@ -1,6 +1,19 @@
 
 ;; =========================================================
-;; AGENTE INTERMEDIO: inferenza per esclusione e navigazione base
+;; AGENTE INTERMEDIO
+;; All inizio pulisce le percezioni vecchie e mantiene solo l ultima cosi il ragionamento lavora su dati aggiornati
+;; Questo agente usa un ragionamento a rischio graduale invece di una semplice scelta sicuro o pericoloso
+;; La logica parte dai segnali percepiti nella cella corrente e valuta in base a brezza puzza posizione e celle già note
+;; Il muro viene capito osservando il tentativo di movimento: se la mossa prevista non cambia posizione allora la cella davanti è un ostacolo
+;; Il processo di ragionamento va avanti quando il rischio delle celle vicine resta entro le soglie stabilite e si ritira quando le ipotesi diventano troppo incerte o un target sicuro non è più disponibile
+;; Ogni segnale percepito aggiorna delle credenze numeriche che rappresentano quanto una cella possa essere rischiosa
+;; Sono particolarmente interessanti le regole che aggiornano i coefficienti di rischio quelle che deducono per esclusione le celle sicure e quelle che azzerano ipotesi deboli quando una cella diventa troppo probabile
+;; L ordine delle regole fa lavorare prima la pulizia delle percezioni poi l aggiornamento delle credenze poi la scelta tra avanzare ritirarsi o seguire il gps
+;; I target sicuri vengono continuamente creati controllati e rimossi in base alle nuove informazioni cosi la navigazione usa sempre una lista aggiornata di obiettivi
+;; Le soglie di rischio servono a distinguere tra certezza prudenza azzardo e ritiro e rendono il comportamento piu leggibile e controllato
+;; Nella memoria tiene il percorso già fatto i muri scoperti i target sicuri e i coefficienti di rischio associati alle ipotesi
+;; Le precauzioni servono a non fidarsi di un solo segnale a ridurre i falsi positivi e a evitare inversioni immediate che fanno perdere tempo
+;; Prima prova a raggiungere un target sicuro poi valuta mosse prudenti e se non ha alternative torna indietro seguendo la memoria del percorso
 ;; =========================================================
 (defmodule MAIN (export ?ALL))
 
@@ -36,6 +49,7 @@
    (memoria-azione (comando none) (da-x 0) (da-y 0))
 )
 
+;; Elimina le percezioni meno recenti in base al campo steps e conserva solo quella aggiornata per evitare dati superati
 (defrule MAIN::pulisci-percept-vecchi
    (declare (salience 10000))
    ?p1 <- (percept (steps ?s1))
@@ -43,6 +57,7 @@
    =>
    (retract ?p2))
 
+;; Avvia il ciclo cognitivo quando arriva un percept nuovo
 (defrule MAIN::deliberate
    (declare (salience -10))
    (percept)
@@ -51,15 +66,19 @@
 
 ;; =========================================================
 ;; PERCEZIONE
+;; Aggiorna il mondo interno e riconosce i muri incontrati durante i tentativi di movimento
 ;; =========================================================
 (defmodule PERCEZIONE (import MAIN ?ALL))
 
+;; Elimina l azione della iterazione precedente prima di scegliere la prossima
 (defrule PERCEZIONE::pulisci-azione
    (declare (salience 2000)) ?a <- (action) => (retract ?a))
 
+;; Elimina la registrazione dell intenzione precedente
 (defrule PERCEZIONE::pulisci-registrazione
    (declare (salience 2000)) ?r <- (intenzione-registrata) => (retract ?r))
 
+;; Segna come visitata la cella corrente e collega il percorso al punto precedente
 (defrule PERCEZIONE::aggiorna-mappa
    (percept (x ?x) (y ?y))
    (memoria-azione (da-x ?px) (da-y ?py))
@@ -67,6 +86,7 @@
    =>
    (modify ?c (visitata TRUE) (da-x ?px) (da-y ?py)))
 
+;; Crea una cella nuova gia visitata quando si entra in una posizione mai registrata
 (defrule PERCEZIONE::crea-cella-mappa
    (percept (x ?x) (y ?y))
    (memoria-azione (da-x ?px) (da-y ?py))
@@ -74,6 +94,7 @@
    =>
    (assert (cella (x ?x) (y ?y) (visitata TRUE) (da-x ?px) (da-y ?py) (cf-pit -1.0) (cf-wumpus -1.0) (esaurita FALSE))))
 
+;; Registra il muro fisico quando il movimento previsto non sposta l agente
 (defrule PERCEZIONE::rileva-muro
    (declare (salience 100))
    (percept (x ?x) (y ?y))
@@ -93,9 +114,11 @@
 
 ;; =========================================================
 ;; RAGIONAMENTO
+;; Traduce brezza e puzza in ipotesi quantitative e costruisce i target sicuri
 ;; =========================================================
 (defmodule RAGIONAMENTO (import MAIN ?ALL))
 
+;; Analizza i segnali della cella corrente e aggiorna le ipotesi sui vicini
 (defrule RAGIONAMENTO::analizza-pericoli
    (percept (x ?x) (y ?y) (breeze ?b) (stench ?s))
    (not (valutata-cella (x ?x) (y ?y)))
@@ -121,6 +144,7 @@
       else
       (printout t "   [i] Segnale presente: uso CF semplici sui vicini." crlf)))
 
+;; Aggiorna il coefficiente di rischio per il pozzo quando arriva una richiesta
 (defrule RAGIONAMENTO::aggiorna-cf-pit
    (declare (salience 10))
    ?r <- (richiesta-cf-pit (x ?x) (y ?y) (val ?n))
@@ -132,6 +156,7 @@
       else
       (if (>= ?v 0.0) then (modify ?c (cf-pit (- (+ ?v ?n) (* ?v ?n)))))))
 
+;; Aggiorna il coefficiente di rischio per il wumpus quando arriva una richiesta
 (defrule RAGIONAMENTO::aggiorna-cf-wumpus
    (declare (salience 10))
    ?r <- (richiesta-cf-wumpus (x ?x) (y ?y) (val ?n))
@@ -143,6 +168,7 @@
       else
       (if (>= ?v 0.0) then (modify ?c (cf-wumpus (- (+ ?v ?n) (* ?v ?n)))))))
 
+;; Crea la cella necessaria prima di applicare un coefficiente di rischio
 (defrule RAGIONAMENTO::crea-cella-per-cf
    (declare (salience 5))
    (or (richiesta-cf-pit (x ?x) (y ?y)) (richiesta-cf-wumpus (x ?x) (y ?y)))
@@ -150,6 +176,7 @@
    =>
    (assert (cella (x ?x) (y ?y))))
 
+;; Crea la cella sopra quando rientra nei limiti della mappa
 (defrule RAGIONAMENTO::crea-cella-sopra
    (declare (salience 25))
    (percept (x ?x) (y ?y) (h ?h))
@@ -159,6 +186,7 @@
    =>
    (assert (cella (x ?x) (y (- ?y 1)))))
 
+;; Crea la cella sotto quando rientra nei limiti della mappa
 (defrule RAGIONAMENTO::crea-cella-sotto
    (declare (salience 25))
    (percept (x ?x) (y ?y) (h ?h))
@@ -167,6 +195,7 @@
    =>
    (assert (cella (x ?x) (y (+ ?y 1)))))
 
+;; Crea la cella a destra quando rientra nei limiti della mappa
 (defrule RAGIONAMENTO::crea-cella-destra
    (declare (salience 25))
    (percept (x ?x) (y ?y) (w ?w))
@@ -175,6 +204,7 @@
    =>
    (assert (cella (x (+ ?x 1)) (y ?y))))
 
+;; Crea la cella a sinistra quando rientra nei limiti della mappa
 (defrule RAGIONAMENTO::crea-cella-sinistra
    (declare (salience 25))
    (percept (x ?x) (y ?y))
@@ -183,6 +213,7 @@
    =>
    (assert (cella (x (- ?x 1)) (y ?y))))
 
+;; Segnala come target sicuro ogni cella non visitata con rischio nullo
 (defrule RAGIONAMENTO::segnala-target-sicuro
    (cella (x ?x) (y ?y) (visitata FALSE) (cf-pit ?cp&:(<= ?cp 0.0)) (cf-wumpus ?cw&:(<= ?cw 0.0)))
    (not (muro (x ?x) (y ?y)))
@@ -190,12 +221,14 @@
    =>
    (assert (target-sicuro (x ?x) (y ?y))))
 
+;; Rimuove un target quando quella cella e stata raggiunta
 (defrule RAGIONAMENTO::rimuovi-target-raggiunto
    ?t <- (target-sicuro (x ?x) (y ?y))
    (cella (x ?x) (y ?y) (visitata TRUE))
    =>
    (retract ?t))
 
+;; Rimuove un target quando si scopre che corrisponde a un muro
 (defrule RAGIONAMENTO::rimuovi-target-muro
    (declare (salience 100))
    ?t <- (target-sicuro (x ?x) (y ?y))
@@ -206,9 +239,11 @@
 
 ;; =========================================================
 ;; DECISIONE
+;; Sceglie tra fuga ritorno al percorso target sicuri e mosse prudenti
 ;; =========================================================
 (defmodule DECISIONE (import MAIN ?ALL))
 
+;; Registra la direzione scelta per ricostruire il percorso in seguito
 (defrule DECISIONE::registra-intenzione
    (declare (salience 1000))
    (percept (x ?x) (y ?y))
@@ -219,6 +254,7 @@
    (modify ?mem (comando ?dir) (da-x ?x) (da-y ?y))
    (assert (intenzione-registrata)))
 
+;; Se compare l oro lo prende e cambia subito fase in fuga
 (defrule DECISIONE::prendi-oro
    (declare (salience 150))
    (not (action))
@@ -229,6 +265,7 @@
    (modify ?s (oro-preso TRUE) (fase fuga))
    (printout t ">>> Oro trovato: parte la fuga." crlf))
 
+;; Se con l oro rientra all origine termina la missione
 (defrule DECISIONE::esci-vincitore
    (declare (salience 200))
    (not (action))
@@ -238,6 +275,7 @@
    (assert (action (move quit)))
    (printout t ">>> Vittoria: uscito con l'oro." crlf))
 
+;; Durante la fuga usa la cella precedente come guida per tornare indietro
 (defrule DECISIONE::fuga-verso-casa
    (declare (salience 140))
    (not (action))
@@ -251,6 +289,7 @@
    (if (= ?py (- ?y 1)) then (assert (action (move up))))
    (if (= ?py (+ ?y 1)) then (assert (action (move down)))))
 
+;; Usa un target sicuro a destra solo se la cella e ancora non visitata e con rischio basso
 (defrule DECISIONE::vai-sicuro-destra
    (declare (salience 50))
    (not (action))
@@ -262,6 +301,7 @@
    (assert (action (move right)))
    (printout t "-> CF semplice: vado a DESTRA." crlf))
 
+;; Usa un target sicuro a sinistra solo se la cella e ancora non visitata e con rischio basso
 (defrule DECISIONE::vai-sicuro-sinistra
    (declare (salience 50))
    (not (action))
@@ -273,6 +313,7 @@
    (assert (action (move left)))
    (printout t "-> CF semplice: vado a SINISTRA." crlf))
 
+;; Usa un target sicuro sopra solo se la cella e ancora non visitata e con rischio basso
 (defrule DECISIONE::vai-sicuro-su
    (declare (salience 50))
    (not (action))
@@ -284,6 +325,7 @@
    (assert (action (move up)))
    (printout t "-> CF semplice: vado in ALTO." crlf))
 
+;; Usa un target sicuro sotto solo se la cella e ancora non visitata e con rischio basso
 (defrule DECISIONE::vai-sicuro-giu
    (declare (salience 60))
    (not (action))
@@ -295,6 +337,7 @@
    (assert (action (move down)))
    (printout t "-> CF semplice: vado in BASSO." crlf))
 
+;; Scelta prudente a destra quando il rischio e molto basso e non esiste un target migliore
 (defrule DECISIONE::scelta-prudente-destra
    (declare (salience 35))
    (not (action))
@@ -307,6 +350,7 @@
    (assert (action (move right)))
    (printout t "!!! Scelta prudente a DESTRA." crlf))
 
+;; Scelta prudente a sinistra quando il rischio e molto basso e non esiste un target migliore
 (defrule DECISIONE::scelta-prudente-sinistra
    (declare (salience 35))
    (not (action))
@@ -319,6 +363,7 @@
    (assert (action (move left)))
    (printout t "!!! Scelta prudente a SINISTRA." crlf))
 
+;; Scelta prudente verso l alto quando il rischio e molto basso e non esiste un target migliore
 (defrule DECISIONE::scelta-prudente-su
    (declare (salience 35))
    (not (action))
@@ -331,6 +376,7 @@
    (assert (action (move up)))
    (printout t "!!! Scelta prudente in ALTO." crlf))
 
+;; Scelta prudente verso il basso quando il rischio e molto basso e non esiste un target migliore
 (defrule DECISIONE::scelta-prudente-giu
    (declare (salience 35))
    (not (action))
@@ -343,6 +389,7 @@
    (assert (action (move down)))
    (printout t "!!! Scelta prudente in BASSO." crlf))
 
+;; Se non ci sono mosse migliori torna alla cella precedente della memoria
 (defrule DECISIONE::ritirata-o-fuga
    (declare (salience 20))
    (not (action))
@@ -355,6 +402,7 @@
    (if (= ?py (- ?y 1)) then (assert (action (move up))))
    (if (= ?py (+ ?y 1)) then (assert (action (move down)))))
 
+;; Se l agente e all origine e non ha alternative utili rinuncia
 (defrule DECISIONE::rinuncia
    (declare (salience 10))
    (not (action))
