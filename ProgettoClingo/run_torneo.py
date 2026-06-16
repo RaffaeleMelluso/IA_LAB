@@ -28,7 +28,7 @@ import json
 
 def run_clingo(torneo_file, turno_file):
     try:
-        res = subprocess.run(["clingo", "--outf=2", str(torneo_file), str(turno_file), "-n", "1"], capture_output=True, text=True, check=False)
+        res = subprocess.run(["clingo", "--outf=2", str(torneo_file), str(turno_file), "--opt-mode=opt", "--quiet=1"], capture_output=True, text=True, check=False)
     except FileNotFoundError:
         print("Errore: clingo non trovato. Installa clingo e riprova.")
         sys.exit(1)
