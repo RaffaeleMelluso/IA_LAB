@@ -4,7 +4,7 @@
 /*
 struttura del nodo per implementare A*
 nodo(F, Stato, G, H, ListaAzioni)
-dove F=G+H e ListaAzioni è la lista delle mosse fatte per arrivare a Stato
+dove F=G+H e ListaAzioni è la lista delle mos\ fatte per arrivare a Stato
 */
 
 

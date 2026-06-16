@@ -12,11 +12,11 @@
 
 %LABIRINTI
 
-%:- consult('labirinti/labirinto.pl').        % mappa
+:- consult('labirinti/labirinto.pl').        % mappa
 %:- consult('labirinti/labirinto_impossibile.pl'). % Un labirinto senza soluzione per testare il caso negativo
-:- consult('labirinti/labirinto_grande.pl'). % Un labirinto più grande per testare le prestazioni
+%:- consult('labirinti/labirinto_grande.pl'). % Un labirinto più grande per testare le prestazioni
 % attenzione ida* ci mette veramente tanto su labirinto gigante
-%:- consult('labirinti/labirinto_gigante.pl'). % Un labirinto gigante 200x200 per testare le prestazioni estreme
+%:- consult('labirinti/labirinto_gigante.pl'). % Un labirinto gigante 200x200 per testare le prestazioni estreme attenzione, non usare ida*
 
 :- consult('stampe.pl').         
 
@@ -25,10 +25,10 @@
 %iniziale_otto(otto([1,2,3,4,5,6,7,0,8])).
 
 %Caso medio
-%iniziale_otto(otto([1,2,3,5,0,6,4,7,8])).
+iniziale_otto(otto([1,2,3,5,0,6,4,7,8])).
 
 %Caso difficile
-iniziale_otto(otto([8,6,7,2,5,4,3,0,1])).
+%iniziale_otto(otto([8,6,7,2,5,4,3,0,1])).
 
 %Caso impossibile (parita' inversa, nessuna soluzione)
 %iniziale_otto(otto([1,2,3,4,5,6,8,7,0])).
